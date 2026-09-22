@@ -34,7 +34,7 @@ The app supports reading code, writing review comments, and composing suggestion
 - A single top toolbar: repository selector, MR meta / review tabs, comparison controls (in review tab), and settings. Integrate native window controls into this row.
 - Left (review tab): searchable file tree.
 - Center (review tab): continuous multi-file diff by default, with a focused single-file mode.
-- Center (MR meta tab): MR title, metadata, and approval action 
+- Center (MR meta tab): MR title, metadata, and approval action
 - Right (both tabs): collapsible AI chat and review walkthrough.
 - Bottom (both tabs): collapsible terminal.
 - Provide unified/split diffs, light/dark/system themes, resizable panels, keyboard navigation, file search, next/previous change, and next/previous unresolved thread.
@@ -190,9 +190,24 @@ Each milestone ends with a usable application, relevant automated checks, and an
 - [x] Native node-pty shell smoke test passes under Electron on macOS arm64. Setup uses shipped Node-API prebuilds and repairs the macOS helper executable permission.
 - [x] Setup documentation and a macOS/Windows CI matrix added.
 - [x] Clean pnpm frozen-lockfile installation verified; package scripts, CI, setup instructions, and the lockfile all use pnpm. Existing preference files remain readable after the UI simplification.
-- [ ] Run the Windows CI job and confirm desktop startup and the native PTY check on Windows.
 
-**Next: milestone 1, local review.** Diff loading, comparison controls, Pierre rendering, local threads, reviewed markers, and filters are not implemented yet. MR, AI, and terminal controls are omitted until their integrations are functional. Monaco remains the planned suggestion editor in milestone 6.
+**Milestone 1: implemented and verified on macOS arm64; Windows verification pending CI.**
+
+- [x] Repository picker/reopening and persisted last comparison per repository.
+- [x] Direct and merge-base ref comparisons, staged, unstaged, all uncommitted, and selected commit → index/working tree. Refs resolve to immutable commits; index content is pinned by blob IDs.
+- [x] Non-ignored untracked files, renames, deletions, executable modes, binary/non-UTF-8 files, symlinks, submodules, conflicts, and unborn branches handled explicitly.
+- [x] Metadata-first loading with per-file lazy content, cancellation on comparison changes, generation IDs, stale-response rejection, and working-tree change detection. Large files require an explicit complete-load action.
+- [x] Pierre diff/full-file rendering, split/unified and continuous/focused layouts, virtualization, highlighting workers, worker-based diff parsing, and tree preparation outside React.
+- [x] Searchable Pierre tree, all/changed/unresolved filters, resizable sidebar, color-coded Git status and line totals, keyboard file search, and previous/next changed file and unresolved thread navigation.
+- [x] Local line-range threads, replies, resolve/reopen, outdated thread access, Markdown, timestamps, comment deletion, and reviewed markers with automatic file collapse tied to content fingerprints. Versioned review records use serialized atomic writes and preserve unreadable files.
+- [x] Nineteen Vitest checks cover settings, Git comparisons and persistence, including partially staged files, remote refs/merge bases, unusual names, CRLF, conflicts, linked worktrees, cancellation, stale content, large/binary files, and corrupt records.
+- [x] TypeScript checks and production build pass. Playwright verifies both diff layouts, focused/continuous browsing, unchanged files, local threads/replies/resolution, reviewed markers, stale notes on refresh, themes, and restart persistence.
+- [x] Reproducible opt-in desktop benchmark added (`pnpm run test:benchmark`). On macOS 26.3, Apple M1 Pro (10 cores, 16 GiB), a synthetic repository with 100,000 tracked files and 1,000 one-line TypeScript changes measured **819 ms to the first visible diff in continuous mode** and **24 ms cached focused-file navigation** (hidden-window run with Git status and line totals enabled). Browser-frame timing excludes fixture creation and Playwright actionability polling; this is a single local run, not a guarantee for larger files or other machines.
+- [x] Usability follow-up: persisted drag/keyboard sidebar resizing, icon filter tabs, suggesting From/To controls with repeat-Compare refresh, project-selection modal, and a dedicated window-drag region.
+- [x] Comment composers use side-specific line annotations without redundant side/range fields. App-lifetime highlighting workers are verified in production and Vite development, including repository switching.
+- [x] Reviewed-revision content search covers commit/index/working-tree text, opens matching lines, validates mutable snapshots, and reports capped results explicitly.
+
+**Next: milestone 2, workspace tools.** MR, AI, and terminal controls remain omitted until their integrations are functional. Monaco remains the planned suggestion editor in milestone 6.
 
 Implementation note: Electron Vite 5 currently requires Vite 5–7. Use Vite 7 with React plugin 5, rather than the incompatible latest Vite/React-plugin majors. Tests and scripts run with Node where required; Electron owns desktop runtime execution.
 

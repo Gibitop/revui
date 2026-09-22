@@ -1,8 +1,12 @@
+import type { RevisionSuggestion, Comparison, ContentSearch, FileContent, ReviewAction, ReviewRecord, Snapshot } from './review'
 export type Settings = {
   version: 1
   theme: 'system' | 'light' | 'dark'
   diffLayout: 'split' | 'unified'
   reviewLayout: 'continuous' | 'focused'
+  wrapLines: boolean
+  sidebarCollapsed: boolean
+  sidebarWidth: number
   aiPanelOpen: boolean
   terminalPanelOpen: boolean
   recentRepositories: string[]
@@ -18,6 +22,15 @@ export type Bootstrap = {
 }
 
 export type DesktopAPI = {
+  copyRelativePath: (path: string) => Promise<void>
+  getRepositoryRefs: (repository: string) => Promise<RevisionSuggestion[]>
+  searchReviewContents: (snapshot: string, query: string) => Promise<ContentSearch>
+  openComparison: (repository: string, comparison: Comparison) => Promise<Snapshot>
+  recentComparison: (repository: string) => Promise<Comparison | null>
+  cancelComparison: () => Promise<void>
+  loadReviewFile: (snapshot: string, path: string, force?: boolean) => Promise<FileContent>
+  getReviewRecord: (snapshot: string) => Promise<ReviewRecord>
+  updateReviewRecord: (snapshot: string, action: ReviewAction) => Promise<ReviewRecord>
   getBootstrap: () => Promise<Bootstrap>
   updatePreferences: (patch: PreferencesPatch) => Promise<Settings>
   chooseRepository: () => Promise<Repository | null>
@@ -27,6 +40,15 @@ export type DesktopAPI = {
 }
 
 export const channels = {
+  copyRelativePath: 'clipboard:relative-path',
+  getRepositoryRefs: 'repository:refs',
+  searchReviewContents: 'review:search',
+  openComparison: 'review:open',
+  recentComparison: 'review:recent',
+  cancelComparison: 'review:cancel',
+  loadReviewFile: 'review:file',
+  getReviewRecord: 'review:record',
+  updateReviewRecord: 'review:update',
   bootstrap: 'app:bootstrap',
   preferences: 'settings:update-preferences',
   settingsChanged: 'settings:changed',

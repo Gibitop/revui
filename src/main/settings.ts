@@ -8,11 +8,17 @@ const preferencesSchema = z.object({
   theme: z.enum(['system', 'light', 'dark']),
   diffLayout: z.enum(['split', 'unified']),
   reviewLayout: z.enum(['continuous', 'focused']),
+  wrapLines: z.boolean(),
+  sidebarCollapsed: z.boolean(),
+  sidebarWidth: z.number().int().min(190).max(600),
   aiPanelOpen: z.boolean(),
   terminalPanelOpen: z.boolean(),
 }).strict()
 export const preferencesPatchSchema = preferencesSchema.partial()
 const settingsSchema = preferencesSchema.extend({
+  wrapLines: z.boolean().default(false),
+  sidebarCollapsed: z.boolean().default(false),
+  sidebarWidth: z.number().int().min(190).max(600).default(270),
   version: z.literal(1),
   recentRepositories: z.array(z.string().min(1)).max(10),
 }).strict() satisfies z.ZodType<Settings>
@@ -23,6 +29,9 @@ export class SettingsStore {
     theme: 'system',
     diffLayout: 'split',
     reviewLayout: 'continuous',
+    sidebarWidth: 270,
+    sidebarCollapsed: false,
+    wrapLines: false,
     aiPanelOpen: false,
     terminalPanelOpen: false,
     recentRepositories: [],

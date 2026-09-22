@@ -1,10 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, session, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, session, type IpcMainInvokeEvent } from 'electron'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { z } from 'zod'
 import { channels, type Bootstrap, type Settings } from '../shared/desktop'
 import { preferencesPatchSchema, SettingsStore } from './settings'
 import { inspectRepository } from './repository'
+import { ReviewService, comparisonSchema, actionSchema } from './review'
 
 app.setName('RevUI')
 if (!app.isPackaged && process.env.REVUI_USER_DATA) app.setPath('userData', process.env.REVUI_USER_DATA)
@@ -51,6 +52,7 @@ function createWindow(): void {
       ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 17 } }
       : { titleBarStyle: 'hidden' as const, titleBarOverlay: { height: 47 } }),
     webPreferences: {
+      backgroundThrottling: app.isPackaged || process.env.REVUI_TEST_HIDDEN !== '1',
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       sandbox: true,
       contextIsolation: true,
@@ -63,7 +65,7 @@ function createWindow(): void {
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   window.webContents.on('will-navigate', (event) => event.preventDefault())
   window.webContents.on('will-attach-webview', (event) => event.preventDefault())
-  window.once('ready-to-show', () => window?.show())
+  window.once('ready-to-show', () => { if (app.isPackaged || process.env.REVUI_TEST_HIDDEN !== '1') window?.show(); else app.dock?.hide() })
   window.on('closed', () => { window = null })
   void window.loadURL(rendererURL)
 }
@@ -111,6 +113,43 @@ if (!app.requestSingleInstanceLock()) {
       publishSettings(await settings.rememberRepository(repository.path))
       return repository
     })
+    ipcMain.handle(channels.copyRelativePath, (event, path: unknown) => {
+      assertSender(event)
+      return clipboard.writeText(z.string().min(1).max(32768).parse(path))
+    })
+    const reviews = new ReviewService(app.getPath('userData'))
+    const repositoryPath = (value: unknown) => {
+      const path = z.string().min(1).max(32768).parse(value)
+      if (!settings.get().recentRepositories.includes(path)) throw new Error('Choose this repository using the folder picker first.')
+      return path
+    }
+    ipcMain.handle(channels.getRepositoryRefs, (event, repository: unknown) => {
+      assertSender(event)
+      return reviews.refs(repositoryPath(repository))
+    })
+    ipcMain.handle(channels.searchReviewContents, (event, id: unknown, query: unknown) => {
+      assertSender(event)
+      return reviews.search(z.string().parse(id), z.string().min(1).max(1000).refine((value) => !/[\0\r\n]/.test(value)).parse(query))
+    })
+    ipcMain.handle(channels.openComparison, (event, repository: unknown, comparison: unknown) => {
+      assertSender(event)
+      return reviews.open(repositoryPath(repository), comparisonSchema.parse(comparison))
+    })
+    ipcMain.handle(channels.recentComparison, (event, repository: unknown) => {
+      assertSender(event)
+      return reviews.recent(repositoryPath(repository))
+    })
+    ipcMain.handle(channels.cancelComparison, (event) => { assertSender(event); reviews.cancel() })
+    ipcMain.handle(channels.loadReviewFile, (event, id: unknown, path: unknown, force: unknown) => {
+      assertSender(event)
+      return reviews.content(z.string().parse(id), z.string().min(1).max(32768).parse(path), z.boolean().parse(force))
+    })
+    ipcMain.handle(channels.getReviewRecord, (event, id: unknown) => { assertSender(event); return reviews.records(z.string().parse(id)) })
+    ipcMain.handle(channels.updateReviewRecord, (event, id: unknown, action: unknown) => {
+      assertSender(event)
+      return reviews.update(z.string().parse(id), actionSchema.parse(action))
+    })
+    app.on('before-quit', () => reviews.cancel())
     nativeTheme.on('updated', () => {
       updateWindowTheme()
       window?.webContents.send(channels.systemThemeChanged, nativeTheme.shouldUseDarkColors ? 'dark' : 'light')

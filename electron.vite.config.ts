@@ -9,6 +9,7 @@ export default defineConfig({
     build: { rollupOptions: { output: { format: 'cjs', entryFileNames: 'index.cjs' } } },
   },
   renderer: {
+    worker: { format: 'es' },
     build: { minify: 'esbuild' },
     resolve: { alias: { '@': resolve('src/renderer/src') } },
     plugins: [
