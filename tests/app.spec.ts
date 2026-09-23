@@ -23,7 +23,7 @@ test('desktop startup, repository picker, IPC isolation, preferences, and restar
     let page = await application.firstWindow()
     const errors: string[] = []
     page.on('pageerror', (error) => errors.push(error.message))
-    await expect(page.getByRole('heading', { name: 'No repository open' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Welcome to RevUI' })).toBeVisible()
     expect(
       await page.evaluate(() => typeof (window as unknown as { require?: unknown }).require),
     ).toBe('undefined')
@@ -60,7 +60,10 @@ test('desktop startup, repository picker, IPC isolation, preferences, and restar
     }, repository)
     await page.getByRole('button', { name: 'Open repository', exact: true }).click()
     await expect(page.getByRole('dialog', { name: 'Open repository' })).toBeVisible()
-    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: 'Open repository' })
+      .getByRole('button', { name: 'Open folder…', exact: true })
+      .click()
     await expect(
       page.getByRole('button', { name: new RegExp(basename(repository)) }).first(),
     ).toBeVisible()
@@ -87,7 +90,22 @@ test('desktop startup, repository picker, IPC isolation, preferences, and restar
     page = await application.firstWindow()
     await expect(page.locator('html')).toHaveClass('dark')
     await expect(page.getByRole('region', { name: 'Recent repositories' })).toBeVisible()
-    await page.getByRole('region', { name: 'Recent repositories' }).getByRole('button').click()
+    await page.keyboard.press('ControlOrMeta+o')
+    const picker = page.getByRole('dialog', { name: 'Open repository' })
+    const search = picker.getByRole('textbox', { name: 'Search recent repositories' })
+    await expect(search).toBeFocused()
+    await search.fill('no-such-repository')
+    await expect(picker.getByRole('status')).toContainText('No matching repositories')
+    await search.fill(basename(repository).toUpperCase())
+    await expect(
+      picker.getByRole('button', { name: new RegExp(basename(repository)) }),
+    ).toBeVisible()
+    await search.press('Escape')
+    await page.keyboard.press('ControlOrMeta+o')
+    await expect(search).toHaveValue('')
+    await search.fill(basename(repository))
+    await search.press('Enter')
+    await expect(picker).toBeHidden()
     await expect(
       page.getByRole('button', { name: new RegExp(basename(repository)) }).first(),
     ).toBeVisible()
@@ -154,7 +172,10 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     }, repository)
     await page.getByRole('button', { name: 'Open repository', exact: true }).click()
     await expect(page.getByRole('dialog', { name: 'Open repository' })).toBeVisible()
-    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: 'Open repository' })
+      .getByRole('button', { name: 'Open folder…', exact: true })
+      .click()
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await page.getByRole('radio', { name: 'Light', exact: true }).click()
     await page.getByRole('button', { name: 'Close settings' }).click()

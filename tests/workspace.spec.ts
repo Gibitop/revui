@@ -46,7 +46,10 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
       dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false })
     }, repository)
     await page.getByRole('button', { name: 'Open repository', exact: true }).click()
-    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: 'Open repository' })
+      .getByRole('button', { name: 'Open folder…', exact: true })
+      .click()
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('HEAD~1')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
     await page.getByRole('button', { name: 'Settings', exact: true }).click()

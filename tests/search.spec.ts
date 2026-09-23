@@ -48,7 +48,10 @@ test('large search results stay responsive and retain syntax and match highlight
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
     }, repository)
     await page.getByRole('button', { name: 'Open repository', exact: true }).click()
-    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: 'Open repository' })
+      .getByRole('button', { name: 'Open folder…', exact: true })
+      .click()
     await expect(page.getByRole('article', { name: 'large.ts', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Search contents', exact: true }).click()
     const input = page.getByRole('textbox', { name: 'Search file contents' })

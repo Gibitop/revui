@@ -47,7 +47,10 @@ test('development highlighting survives switching repositories', async () => {
       await page
         .getByRole('button', { name: index ? 'first' : 'Open repository', exact: true })
         .click()
-      await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+      await page
+        .getByRole('dialog', { name: 'Open repository' })
+        .getByRole('button', { name: 'Open folder…', exact: true })
+        .click()
       await expect
         .poll(
           () =>

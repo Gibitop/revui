@@ -83,7 +83,10 @@ test('tree errors recover; shadcn controls and background reads preserve the rev
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
     }, repository)
     await page.getByRole('button', { name: 'Open repository', exact: true }).click()
-    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: 'Open repository' })
+      .getByRole('button', { name: 'Open folder…', exact: true })
+      .click()
     await expect(page.getByRole('alert')).toContainText('Injected preparation failure')
     await page.evaluate(() => {
       ;(window as unknown as { treeFailure: string }).treeFailure = 'runtime'

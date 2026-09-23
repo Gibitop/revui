@@ -48,7 +48,10 @@ test('long-file thread navigation stays inside the review pane; native copy and 
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
     }, repository)
     await page.getByRole('button', { name: 'Open repository', exact: true }).click()
-    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: 'Open repository' })
+      .getByRole('button', { name: 'Open folder…', exact: true })
+      .click()
     const file = page.getByRole('article', { name: 'src/long.ts', exact: true })
     await expect(file.locator('[data-line]').first()).toBeVisible()
     await application.evaluate(async ({ clipboard, ClipboardItem }) => {
@@ -201,7 +204,10 @@ test('file-tree navigation stays aligned as distant diffs load and yields to man
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
     }, repository)
     await page.getByRole('button', { name: 'Open repository', exact: true }).click()
-    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: 'Open repository' })
+      .getByRole('button', { name: 'Open folder…', exact: true })
+      .click()
     const last = page.getByRole('article', { name: paths.at(-1)!, exact: true })
     await expect(last).toContainText('Scroll to load file')
     const selectedItems = page.getByRole('treeitem', { selected: true })
@@ -344,7 +350,10 @@ test('diffs and file navigation follow the tree folders-first natural order', as
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
     }, repository)
     await page.getByRole('button', { name: 'Open repository', exact: true }).click()
-    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: 'Open repository' })
+      .getByRole('button', { name: 'Open folder…', exact: true })
+      .click()
     const treeFiles = page.locator('[role="treeitem"][data-item-type="file"]')
     await expect(treeFiles).toHaveCount(expected.length)
     expect(
@@ -416,7 +425,10 @@ test('unresolved threads remain accessible after an untracked file disappears', 
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
     }, repository)
     await page.getByRole('button', { name: 'Open repository', exact: true }).click()
-    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: 'Open repository' })
+      .getByRole('button', { name: 'Open folder…', exact: true })
+      .click()
     const file = page.getByRole('article', { name: 'temporary.txt', exact: true })
     await file.locator('[data-column-number="1"][data-line-type="change-addition"]').click()
     await page.getByLabel('Comment on temporary.txt').fill('Keep this unresolved note')

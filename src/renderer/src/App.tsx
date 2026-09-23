@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, Loader2, PanelLeftClose, PanelLeftOpen, Settings2 } from 'lucide-react'
+import {
+  FolderGit2,
+  FolderOpen,
+  Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings2,
+} from 'lucide-react'
 import type { Bootstrap, PreferencesPatch, Repository } from '../../shared/desktop'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
@@ -158,9 +165,11 @@ export function App() {
           </Tooltip>
         </header>
 
-        {(openRepository.error || preferences.error || data.warning) && (
+        {((openRepository.error && !repositoriesOpen) || preferences.error || data.warning) && (
           <div className="border-b bg-muted px-6 py-3" role="alert">
-            {openRepository.error?.message ?? preferences.error?.message ?? data.warning}
+            {(!repositoriesOpen && openRepository.error?.message) ||
+              preferences.error?.message ||
+              data.warning}
           </div>
         )}
         <main data-testid="workspace" className="flex min-h-0 flex-1 flex-col overflow-clip">
@@ -175,26 +184,52 @@ export function App() {
               preferences={(patch) => preferences.mutate(patch)}
             />
           ) : (
-            <div className="mx-auto my-20 max-w-150 overflow-auto px-6 [&>p]:mt-2">
-              <h1 className="font-semibold">No repository open</h1>
-              <p className="text-muted-foreground">
-                Open a local Git repository from the toolbar or press {commandKey}O.
-              </p>
+            <div className="min-h-0 flex-1 overflow-auto px-6 py-12 sm:py-20">
+              <div className="mx-auto w-full max-w-130">
+                <div className="mb-5 flex size-12 items-center justify-center rounded-xl border bg-surface">
+                  <FolderGit2 className="size-6 text-muted-foreground" />
+                </div>
+                <h1 className="font-semibold">Welcome to RevUI</h1>
+                <p className="mt-2 max-w-100 text-muted-foreground">
+                  A quiet place to review your code. Open a local Git repository to compare changes
+                  and leave review notes.
+                </p>
+                <div className="mt-6 flex flex-wrap items-center gap-4">
+                  <Button
+                    className="h-10 px-4"
+                    disabled={openRepository.isPending}
+                    onClick={() => openRepository.mutate()}
+                  >
+                    {openRepository.isPending ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <FolderOpen />
+                    )}
+                    {openRepository.isPending ? 'Opening repository…' : 'Open folder…'}
+                  </Button>
+                  <span className="text-muted-foreground">
+                    <kbd className="rounded border bg-surface px-1.5 py-0.5 font-mono">
+                      {commandKey}O
+                    </kbd>{' '}
+                    to browse repositories
+                  </span>
+                </div>
 
-              {recentRepositories.length > 0 && (
-                <section className="mt-10" aria-labelledby="recent-heading">
-                  <h2 id="recent-heading" className="font-semibold">
-                    Recent repositories
-                  </h2>
-                  <div className="mt-3">
-                    <RepositoryChoices
-                      paths={recentRepositories}
-                      pending={openRepository.isPending}
-                      onSelect={(path) => openRepository.mutate(path)}
-                    />
-                  </div>
-                </section>
-              )}
+                {recentRepositories.length > 0 && (
+                  <section className="mt-10" aria-labelledby="recent-heading">
+                    <h2 id="recent-heading" className="font-semibold">
+                      Recent repositories
+                    </h2>
+                    <div className="mt-3 rounded-lg border p-1">
+                      <RepositoryChoices
+                        paths={recentRepositories}
+                        pending={openRepository.isPending}
+                        onSelect={(path) => openRepository.mutate(path)}
+                      />
+                    </div>
+                  </section>
+                )}
+              </div>
             </div>
           )}
         </main>
