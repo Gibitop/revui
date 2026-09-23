@@ -123,6 +123,7 @@ function ReviewSession({
     }
   }, [initialComparison, openComparison, queryClient])
   const [selected, setSelected] = useState('')
+  const [scrollTarget, setScrollTarget] = useState<{ path: string } | null>(null)
   const [filter, setFilter] = useState('changed')
   const [search, setSearch] = useState('')
   const [threadVisit, setThreadVisit] = useState(0)
@@ -143,6 +144,7 @@ function ReviewSession({
   })
   useEffect(() => {
     setSelected(snapshot.data?.files[0]?.path ?? '')
+    setScrollTarget(null)
     setThreadFocus(null)
     setSearchHit(null)
   }, [snapshot.data])
@@ -204,12 +206,7 @@ function ReviewSession({
     setSelected(path)
     setSearchHit(null)
     setThreadFocus(null)
-    requestAnimationFrame(() => {
-      const file = document.getElementById(`file-${encodeURIComponent(path)}`)
-      const scroll = file?.closest('[data-testid="diff-scroll"]')?.firstElementChild
-      if (file && scroll)
-        scroll.scrollTop += file.getBoundingClientRect().top - scroll.getBoundingClientRect().top
-    })
+    setScrollTarget({ path })
   }
   const navigate = (direction: number, threads = false) => {
     if (threads) {
@@ -259,6 +256,54 @@ function ReviewSession({
         ? [selected]
         : []
       : paths.filter((path) => filesByPath.has(path))
+
+  useEffect(() => {
+    if (!scrollTarget || threadFocus || searchHit) return
+    const file = document.getElementById(`file-${encodeURIComponent(scrollTarget.path)}`)
+    const scroll = file?.closest('[data-testid="diff-scroll"]')?.firstElementChild
+    const content = scroll?.firstElementChild
+    if (!file || !scroll || !content) return
+
+    // Loading, parsing and virtualized rendering can all change the target's offset.
+    // Keep the navigation anchored until the user takes control of the viewport.
+    let frame = 0
+    const align = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        scroll.scrollTop += file.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+      })
+    }
+    const observer = new ResizeObserver(align)
+    observer.observe(scroll)
+    observer.observe(content)
+    for (const card of content.children) {
+      observer.observe(card)
+      if (card === file) break
+    }
+    const cancel = () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+      setScrollTarget(null)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey) return
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key))
+        cancel()
+    }
+    scroll.addEventListener('wheel', cancel, { passive: true })
+    scroll.addEventListener('touchstart', cancel, { passive: true })
+    window.addEventListener('pointerdown', cancel)
+    window.addEventListener('keydown', onKey)
+    align()
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+      scroll.removeEventListener('wheel', cancel)
+      scroll.removeEventListener('touchstart', cancel)
+      window.removeEventListener('pointerdown', cancel)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [scrollTarget, snapshot.data, paths, settings.reviewLayout, threadFocus, searchHit])
 
   return (
     <>

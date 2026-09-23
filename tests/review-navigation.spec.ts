@@ -127,3 +127,127 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('file-tree navigation stays aligned as distant diffs load and yields to manual scrolling', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'revui-file-navigation-'))
+  const repository = join(root, 'repo')
+  await mkdir(repository)
+  const git = (...args: string[]) =>
+    promisify(execFile)('git', [
+      '-C',
+      repository,
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.com',
+      '-c',
+      'commit.gpgsign=false',
+      ...args,
+    ])
+  await git('init', '-b', 'main')
+  await git('commit', '--allow-empty', '-m', 'initial')
+  const paths = Array.from(
+    { length: 16 },
+    (_, index) => `file-${String(index).padStart(2, '0')}.ts`,
+  )
+  await Promise.all(
+    paths.map((path) =>
+      writeFile(
+        join(repository, path),
+        Array.from({ length: 200 }, (_, i) => `export const value${i} = ${i};`).join('\n') + '\n',
+      ),
+    ),
+  )
+  const env: Record<string, string> = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    ),
+    REVUI_USER_DATA: join(root, 'data'),
+    REVUI_TEST_HIDDEN: '1',
+  }
+  delete env.ELECTRON_RUN_AS_NODE
+  delete env.ELECTRON_RENDERER_URL
+  const application = await electron.launch({ args: ['.'], env })
+  try {
+    const page = await application.firstWindow()
+    await application.evaluate(({ BrowserWindow, dialog }, path) => {
+      BrowserWindow.getAllWindows()[0].setSize(1100, 900)
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
+    }, repository)
+    await page.getByRole('button', { name: 'Open repository', exact: true }).click()
+    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    const last = page.getByRole('article', { name: paths.at(-1)!, exact: true })
+    await expect(last).toContainText('Scroll to load file')
+    await page.getByRole('treeitem', { name: /file-15.ts/ }).click()
+    await expect(last.locator('[data-line]').first()).toBeVisible()
+    await expect
+      .poll(() =>
+        last.evaluate((file) => {
+          const scroll = file.closest('[data-testid="diff-scroll"]')!.firstElementChild!
+          return Math.abs(file.getBoundingClientRect().top - scroll.getBoundingClientRect().top)
+        }),
+      )
+      .toBeLessThan(2)
+
+    // A late height change above the selected file must also preserve the destination.
+    await page.getByRole('article', { name: paths[14], exact: true }).evaluate((file) => {
+      file.style.paddingBottom = '800px'
+    })
+    await expect
+      .poll(() =>
+        last.evaluate((file) => {
+          const scroll = file.closest('[data-testid="diff-scroll"]')!.firstElementChild!
+          return Math.abs(file.getBoundingClientRect().top - scroll.getBoundingClientRect().top)
+        }),
+      )
+      .toBeLessThan(2)
+
+    await page.mouse.move(850, 500)
+    await page.mouse.wheel(0, 500)
+    await expect
+      .poll(() =>
+        last.evaluate((file) => {
+          const scroll = file.closest('[data-testid="diff-scroll"]')!.firstElementChild!
+          return file.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+        }),
+      )
+      .toBeLessThan(-100)
+    await last.evaluate((file) => {
+      file.style.paddingBottom = '200px'
+    })
+    // Wait for resize observers and their scheduled corrections, if any.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+        ),
+    )
+    expect(
+      await last.evaluate((file) => {
+        const scroll = file.closest('[data-testid="diff-scroll"]')!.firstElementChild!
+        return file.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+      }),
+    ).toBeLessThan(-100)
+
+    await page.getByRole('treeitem', { name: /file-00.ts/ }).click()
+    await expect(
+      page.getByRole('article', { name: paths[0], exact: true }).locator('[data-line]').first(),
+    ).toBeVisible()
+    await page.getByRole('treeitem', { name: /file-15.ts/ }).click()
+    await expect
+      .poll(() =>
+        last.evaluate((file) => {
+          const scroll = file.closest('[data-testid="diff-scroll"]')!.firstElementChild!
+          return Math.abs(file.getBoundingClientRect().top - scroll.getBoundingClientRect().top)
+        }),
+      )
+      .toBeLessThan(2)
+  } finally {
+    await application.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
