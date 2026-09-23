@@ -1,3 +1,5 @@
+import { ideChoices } from '../shared/workspace'
+import { commandsSchema } from './workspace'
 import { mkdir, readFile, rename, writeFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -6,6 +8,11 @@ import type { PreferencesPatch, Settings } from '../shared/desktop'
 
 const preferencesSchema = z
   .object({
+    preferredIDE: z.enum(
+      Object.keys(ideChoices) as [keyof typeof ideChoices, ...Array<keyof typeof ideChoices>],
+    ),
+    workspaceCommands: commandsSchema,
+    repositoryCommands: z.record(z.string(), commandsSchema),
     theme: z.enum(['system', 'light', 'dark']),
     diffLayout: z.enum(['split', 'unified']),
     reviewLayout: z.enum(['continuous', 'focused']),
@@ -13,12 +20,14 @@ const preferencesSchema = z
     sidebarCollapsed: z.boolean(),
     sidebarWidth: z.number().int().min(190).max(600),
     aiPanelOpen: z.boolean(),
-    terminalPanelOpen: z.boolean(),
   })
   .strict()
 export const preferencesPatchSchema = preferencesSchema.partial()
 const settingsSchema = preferencesSchema
   .extend({
+    preferredIDE: preferencesSchema.shape.preferredIDE.default('vscode'),
+    workspaceCommands: commandsSchema.default({ script: '' }),
+    repositoryCommands: z.record(z.string(), commandsSchema).default({}),
     wrapLines: z.boolean().default(false),
     sidebarCollapsed: z.boolean().default(false),
     sidebarWidth: z.number().int().min(190).max(600).default(270),
@@ -29,6 +38,9 @@ const settingsSchema = preferencesSchema
 
 export class SettingsStore {
   private settings: Settings = {
+    preferredIDE: 'vscode',
+    workspaceCommands: { script: '' },
+    repositoryCommands: {},
     version: 1,
     theme: 'system',
     diffLayout: 'split',
@@ -37,7 +49,6 @@ export class SettingsStore {
     sidebarCollapsed: false,
     wrapLines: false,
     aiPanelOpen: false,
-    terminalPanelOpen: false,
     recentRepositories: [],
   }
   private queue: Promise<unknown> = Promise.resolve()
@@ -60,6 +71,27 @@ export class SettingsStore {
       // Never overwrite settings created by a newer application version.
       if (parsed && typeof parsed === 'object' && 'version' in parsed && parsed.version !== 1) {
         throw new Error('unsupported-version')
+      }
+      // Migrate retired panel preferences and platform-specific setup commands.
+      if (parsed && typeof parsed === 'object') {
+        delete (parsed as Record<string, unknown>).terminalPanelOpen
+        delete (parsed as Record<string, unknown>).terminalHeight
+        const value = parsed as Record<string, unknown>
+        if (value.preferredIDE === 'custom') value.preferredIDE = 'vscode'
+        const overrides = value.repositoryCommands
+        const commands = [
+          value.workspaceCommands,
+          ...(overrides && typeof overrides === 'object' ? Object.values(overrides) : []),
+        ]
+        for (const entry of commands) {
+          if (!entry || typeof entry !== 'object') continue
+          const command = entry as Record<string, unknown>
+          if (!('script' in command) && ('mac' in command || 'windows' in command))
+            command.script = command[process.platform === 'win32' ? 'windows' : 'mac']
+          delete command.mac
+          delete command.windows
+          delete command.ide
+        }
       }
       this.settings = settingsSchema.parse(parsed)
     } catch (error) {

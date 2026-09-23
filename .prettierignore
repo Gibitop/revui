@@ -3,3 +3,6 @@ out
 pnpm-lock.yaml
 test-results
 playwright-report
+
+# Preserve vendored SVGL assets unchanged.
+src/renderer/src/assets/ide/*.svg

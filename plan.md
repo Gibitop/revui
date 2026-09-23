@@ -6,7 +6,7 @@ Build a local code-review application for developers on macOS and Windows. Start
 
 Use Electron, React, TypeScript, shadcn/ui, Tailwind, `@pierre/diffs`, `@pierre/trees`, and pnpm. Initially, developers clone the repository and run setup commands; signed installers and automatic updates are deferred.
 
-The app supports reading code, writing review comments, and composing suggestions. Direct source editing, staging, committing, pushing, and merging MRs are outside this plan. The terminal remains a normal shell under the user’s control.
+The app supports reading code, writing review comments, and composing suggestions. Direct source editing, staging, committing, pushing, and merging MRs are outside this plan.
 
 **Plan artifact:** This file is the implementation reference. Maintain the milestone checklist below as work progresses.
 
@@ -36,7 +36,6 @@ The app supports reading code, writing review comments, and composing suggestion
 - Center (review tab): continuous multi-file diff by default, with a focused single-file mode.
 - Center (MR meta tab): MR title, metadata, and approval action
 - Right (both tabs): collapsible AI chat and review walkthrough.
-- Bottom (both tabs): collapsible terminal.
 - Provide unified/split diffs, light/dark/system themes, resizable panels, keyboard navigation, file search, next/previous change, and next/previous unresolved thread.
 - Use a monochrome palette. Reserve color for semantic UI such as added/deleted lines and diagnostic status.
 - Use at most three text styles: regular UI text (Geist 400), emphasized labels (Geist 600), and code/paths (Geist Mono 400). All use 13px font size, 20px line height, normal letter spacing, and no text transforms.
@@ -73,17 +72,18 @@ Basic diff browsing reads Git objects without checking anything out.
 
 When AI or TypeScript tooling needs a different revision:
 
-- Ask whether to create an app-managed worktree or check out in place.
+- Initialize using an icon-only lightning bolt in the top bar. Resolve commit identities first; when the target matches the checkout, run setup directly. Otherwise ask whether to create an app-managed worktree or check out in place, with one primary action. Show a spinner during initialization and yellow after successful setup.
 - For dirty in-place checkout, show an explicit stashing warning. Stash tracked and untracked changes, preserving the original checkout and exact stash identity.
 - Block the operation if stashing or checkout fails; do not discard changes.
-- Allow a user-configured post-checkout script, with repository overrides and separate macOS/Windows commands. Show execution output and failures.
+- Allow a user-configured post-checkout script, with repository overrides, running on the current machine. Show execution output and failures.
 - When leaving an in-place review, prompt to restore the original workspace or leave it as-is.
 - Restore only the app’s recorded stash. Preserve it on conflicts and show recovery instructions; never force restoration over new changes.
-- Retain managed worktrees until explicit cleanup. Check for user changes before removal.
+- Reuse matching managed worktrees when reopening a diff, comparing commit IDs or immutable index trees and restoring persisted initialization state. Persistently remove missing worktree entries when refreshing the list; retain in-place recovery records and skip changed checkouts when reusing worktrees.
+- Manage worktrees across all repositories in Settings → Worktrees, including when no repository is open. Provide copy buttons for the full revision and path, plus an icon to open the directory in Finder/Explorer. Cards show the revision with associated branches and tags, and a trash icon for removal; matching worktrees are selected automatically. Retain them until explicit cleanup and check for user changes before removal.
 
 Reviewing current local changes uses the existing workspace. For staged-only AI review, prepare an isolated snapshot matching the index so unstaged changes do not contaminate the review.
 
-Use `xterm.js` and `node-pty` for terminal sessions rooted in the selected workspace. Provide configurable IDE launch commands with file/line arguments. Historical files require a matching prepared workspace or an explicitly labeled temporary snapshot.
+Provide built-in IDE launchers with file/line arguments. A project IDE split button beside the lightning bolt opens the initialized workspace root; disable it before setup succeeds and explain why in a tooltip. Each file header provides an icon-only IDE split button beside Copy relative path, with Cursor, VS Code, IntelliJ IDEA, and WebStorm. Remember the selected IDE. Open the actual file on disk in the active workspace or current checkout, including during historical/index comparisons, without requiring workspace preparation.
 
 ### GitLab integration
 
@@ -163,9 +163,9 @@ Base-side semantic navigation and other language servers are deferred.
 
 | Milestone                      | Deliverable and completion criteria                                                                                                                                                                              |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **0. Foundation**              | Save `plan.md`; scaffold Electron/React/pnpm; establish IPC, settings, themes, and test tooling. Confirm startup and native terminal dependencies on macOS and Windows.                                          |
+| **0. Foundation**              | Save `plan.md`; scaffold Electron/React/pnpm; establish IPC, settings, themes, and test tooling. Confirm startup on macOS and Windows.                                                                           |
 | **1. Local review**            | Open/reopen repositories; implement all comparison modes, both layouts, tree filters, local threads, reviewed markers, and lazy diff loading. Usable offline without GitLab or AI installed.                     |
-| **2. Workspace tools**         | Add worktree/in-place preparation, safe stash restoration, post-checkout scripts, IDE opening, and terminal sessions. Verify failure recovery before enabling GitLab-driven workspace preparation.               |
+| **2. Workspace tools**         | Add worktree/in-place preparation, safe stash restoration, post-checkout scripts and IDE opening. Verify failure recovery before enabling GitLab-driven workspace preparation.                                   |
 | **3. GitLab review**           | Add token setup, `origin` discovery, MR selection/metadata, all discussion workflows, suggestions, immediate/draft publishing, refresh handling, and approval. A complete human MR review can happen in the app. |
 | **4. Codex review**            | Add chat, approvals, cancellation/resume, structured findings, publishing selected findings, and grouped walkthroughs. Results remain tied to the reviewed snapshot.                                             |
 | **5. OpenCode**                | Add the ACP adapter and run the same chat/review acceptance scenarios. Surface capability differences explicitly.                                                                                                |
@@ -174,7 +174,7 @@ Base-side semantic navigation and other language servers are deferred.
 
 Each milestone ends with a usable application, relevant automated checks, and an updated `plan.md`. Performance work happens throughout rather than being postponed to milestone 7.
 
-### Implementation status — September 22, 2026
+### Implementation status — September 23, 2026
 
 **Milestone 0: implemented and verified on macOS arm64; Windows verification pending CI.**
 
@@ -187,7 +187,6 @@ Each milestone ends with a usable application, relevant automated checks, and an
 - [x] Eight Vitest settings/Git tests, TypeScript checks, and production build pass locally.
 - [x] Playwright verifies Electron startup, theme changes, IPC restrictions, repository selection, and preferences/recent repositories across restart.
 - [x] Development startup (`pnpm run dev`) verified in the native macOS window, including the renderer/preload connection.
-- [x] Native node-pty shell smoke test passes under Electron on macOS arm64. Setup uses shipped Node-API prebuilds and repairs the macOS helper executable permission.
 - [x] Setup documentation and a macOS/Windows CI matrix added.
 - [x] Clean pnpm frozen-lockfile installation verified; package scripts, CI, setup instructions, and the lockfile all use pnpm. Existing preference files remain readable after the UI simplification.
 
@@ -207,7 +206,18 @@ Each milestone ends with a usable application, relevant automated checks, and an
 - [x] Comment composers use side-specific line annotations without redundant side/range fields. App-lifetime highlighting workers are verified in production and Vite development, including repository switching.
 - [x] Reviewed-revision content search covers commit/index/working-tree text, opens matching lines, validates mutable snapshots, and reports capped results explicitly.
 
-**Next: milestone 2, workspace tools.** MR, AI, and terminal controls remain omitted until their integrations are functional. Monaco remains the planned suggestion editor in milestone 6.
+**Milestone 2: implemented and verified on macOS arm64; Windows verification pending CI.**
+
+- [x] Explicit managed-worktree and in-place preparation for pinned target commits; local-change reviews use the existing checkout. Index reviews materialize an immutable, isolated index tree and reject stale index snapshots.
+- [x] Clean in-place checkout without a second confirmation; confirmation is required when tracked/untracked changes need stashing. Versioned, atomic workspace recovery records preserve the original branch/commit and exact stash identity across restarts, including interruption between stash creation and journal update.
+- [x] Restore/leave/cancel prompts when changing comparisons or repositories and closing/quitting. Restoration preserves partial staging, refuses new changes and moved branches, retains the recovery stash, and exposes conflict/interruption recovery instructions with explicit manual-recovery completion.
+- [x] Managed worktrees persist until explicit removal. Cleanup refuses tracked changes, non-ignored untracked files, and changed HEADs; ignored-file cleanup requires explicit confirmation; checkout protects ignored files from overwriting.
+- [x] Settings modal with an Appearance/Workspace/Worktrees sidebar and switches for boolean preferences. A single user-configured post-checkout script for the current machine, global defaults and repository overrides, streamed output, failure reporting, retry, and process-tree cancellation. Repository files are never imported as setup commands.
+- [x] Built-in launchers for Cursor, VS Code, IntelliJ IDEA, and WebStorm with file/line arguments. Selected target lines and search results carry line positions; per-file IDE split buttons remember the chosen launcher and open on-disk files even during historical/index comparisons, without requiring preparation. Paths resolving outside the active workspace are rejected.
+- [x] All 41 Vitest checks pass, including new coverage for dirty worktrees, ignored output, partially staged/untracked restoration, independent user stashes, restart/crash recovery, failed checkout, conflicting restoration, manual recovery, stale-index isolation, script output/failure/cancellation, command preferences, legacy-settings migration, IDE path validation, tag/commit identity matching, and staged checkout matching.
+- [x] TypeScript, Hooks lint, formatting, production build, and all eight enabled Playwright desktop tests pass locally. The desktop flow verifies preparation, setup output and retry, project/file IDE arguments, explicit cleanup in Settings, comparison-exit restoration, and matching-tag initialization. The opt-in benchmark is not rerun for this milestone.
+
+**Next: milestone 3, GitLab review.** MR and AI controls remain omitted until their integrations are functional. Monaco remains the planned suggestion editor in milestone 6.
 
 Implementation note: Electron Vite 5 currently requires Vite 5–7. Use Vite 7 with React plugin 5, rather than the incompatible latest Vite/React-plugin majors. Tests and scripts run with Node where required; Electron owns desktop runtime execution.
 

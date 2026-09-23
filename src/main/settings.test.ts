@@ -94,3 +94,75 @@ describe('settings persistence', () => {
     expect(preferencesPatchSchema.safeParse({ aiPanelOpen: 'yes' }).success).toBe(false)
   })
 })
+
+it('retains workspace command overrides across unrelated preferences and restart', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'revui-tool-settings-'))
+  directories.push(directory)
+  const store = new SettingsStore(directory)
+  await store.load()
+  const commands = { script: 'echo setup' }
+  await store.updatePreferences({
+    workspaceCommands: commands,
+    repositoryCommands: { '/project': commands },
+    sidebarWidth: 320,
+  })
+  await store.updatePreferences({ theme: 'light' })
+  const reopened = new SettingsStore(directory)
+  await reopened.load()
+  expect(reopened.get()).toMatchObject({
+    workspaceCommands: commands,
+    repositoryCommands: { '/project': commands },
+    sidebarWidth: 320,
+  })
+})
+
+it('loads retired panel preferences without resetting existing settings', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'revui-legacy-settings-'))
+  directories.push(directory)
+  const store = new SettingsStore(directory)
+  await store.load()
+  await writeFile(
+    join(directory, 'settings.json'),
+    JSON.stringify({ ...store.get(), theme: 'dark', terminalPanelOpen: true, terminalHeight: 320 }),
+  )
+  await store.load()
+  expect(store.warning).toBeNull()
+  expect(store.get().theme).toBe('dark')
+  expect(store.get()).not.toHaveProperty('terminalPanelOpen')
+  expect(store.get()).not.toHaveProperty('terminalHeight')
+  await store.updatePreferences({ wrapLines: true })
+  expect(await readFile(join(directory, 'settings.json'), 'utf8')).not.toContain('terminal')
+})
+
+it('migrates global and repository setup scripts to the current machine command', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'revui-script-migration-'))
+  directories.push(directory)
+  const store = new SettingsStore(directory)
+  await store.load()
+  const legacy = { mac: 'echo mac', windows: 'echo windows', ide: ['code', '{file}'] }
+  await writeFile(
+    join(directory, 'settings.json'),
+    JSON.stringify({
+      ...store.get(),
+      preferredIDE: 'custom',
+      workspaceCommands: legacy,
+      repositoryCommands: {
+        '/project': { ...legacy, mac: 'echo repo-mac', windows: 'echo repo-windows' },
+      },
+    }),
+  )
+  await store.load()
+  expect(store.warning).toBeNull()
+  const platform = process.platform === 'win32' ? 'windows' : 'mac'
+  expect(store.get().preferredIDE).toBe('vscode')
+  expect(store.get().workspaceCommands).toEqual({ script: `echo ${platform}` })
+  expect(store.get().repositoryCommands['/project']).toEqual({
+    script: `echo repo-${platform}`,
+  })
+  await store.updatePreferences({ theme: 'dark' })
+  const reopened = new SettingsStore(directory)
+  await reopened.load()
+  expect(reopened.get().workspaceCommands).toEqual(store.get().workspaceCommands)
+  expect(reopened.get().repositoryCommands).toEqual(store.get().repositoryCommands)
+  expect(await readFile(join(directory, 'settings.json'), 'utf8')).not.toContain('"windows":')
+})

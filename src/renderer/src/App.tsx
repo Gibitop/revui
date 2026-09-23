@@ -23,8 +23,10 @@ export function App() {
     scope: { id: 'preferences' },
   })
   const openRepository = useMutation({
-    mutationFn: (path?: string) =>
-      path ? window.desktop.reopenRepository(path) : window.desktop.chooseRepository(),
+    mutationFn: async (path?: string) => {
+      if (repository && !(await window.desktop.leaveWorkspace(repository.path))) return null
+      return path ? window.desktop.reopenRepository(path) : window.desktop.chooseRepository()
+    },
     onSuccess: (result) => {
       if (result) {
         setRepository(result)
@@ -190,6 +192,8 @@ export function App() {
         error={openRepository.error}
       />
       <SettingsDialog
+        platform={data.platform}
+        repository={repository}
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         settings={settings}

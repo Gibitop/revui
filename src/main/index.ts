@@ -1,3 +1,4 @@
+import { registerWorkspaceIPC } from './workspace-ipc'
 import {
   app,
   BrowserWindow,
@@ -26,6 +27,10 @@ const rendererURL =
     ? new URL(process.env.ELECTRON_RENDERER_URL).href
     : pathToFileURL(rendererFile).href
 let window: BrowserWindow | null = null
+let quitting = false
+app.on('before-quit', () => {
+  quitting = true
+})
 let settings: SettingsStore
 
 function assertSender(event: IpcMainInvokeEvent): void {
@@ -225,9 +230,63 @@ if (!app.requestSingleInstanceLock()) {
           nativeTheme.shouldUseDarkColors ? 'dark' : 'light',
         )
       })
+      const workspaceTools = await registerWorkspaceIPC(
+        app.getPath('userData'),
+        reviews,
+        settings,
+        assertSender,
+        () => window,
+      )
+      app.on('before-quit', () => {
+        workspaceTools.stopScripts()
+      })
       createWindow()
+      const guardClose = () => {
+        const current = window
+        if (!current) return
+        let allowed = false
+        let prompting = false
+        current.on('close', (event) => {
+          if (allowed) return
+          const repositories = [
+            ...new Set(
+              workspaceTools.workspaces
+                .list()
+                .filter((record) => record.kind === 'in-place' && record.phase !== 'restored')
+                .map((record) => record.repository),
+            ),
+          ]
+          if (!repositories.length) {
+            workspaceTools.stopScripts()
+            return
+          }
+          event.preventDefault()
+          if (prompting) return
+          prompting = true
+          void (async () => {
+            try {
+              for (const path of repositories)
+                if (!(await workspaceTools.leave(path))) {
+                  quitting = false
+                  return
+                }
+              allowed = true
+              if (quitting) app.quit()
+              else current.close()
+            } catch (error) {
+              dialog.showErrorBox('Workspace restoration failed', String(error))
+            } finally {
+              prompting = false
+            }
+          })()
+        })
+      }
+      guardClose()
       app.on('activate', () => {
-        if (!window) createWindow()
+        if (!window) {
+          createWindow()
+          guardClose()
+        }
       })
     })
     .catch((error: unknown) => {

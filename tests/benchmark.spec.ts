@@ -48,7 +48,6 @@ test('100,000 tracked files and 1,000 changed files', async ({}, testInfo) => {
       diffLayout: 'split',
       reviewLayout: 'continuous',
       aiPanelOpen: false,
-      terminalPanelOpen: false,
       recentRepositories: [repository],
     }),
   )

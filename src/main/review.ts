@@ -415,6 +415,25 @@ export class ReviewService {
     return snapshot
   }
 
+  async workspaceSnapshot(id: string): Promise<Snapshot & { indexTree?: string }> {
+    const active = this.get(id)
+    let indexTree: string | undefined
+    if (active.snapshot.comparison.target.kind === 'index') {
+      if (
+        digest(await this.git(active.snapshot.repository, ['ls-files', '--stage', '-z'])) !==
+        active.indexDigest
+      )
+        throw new Error('The index changed. Compare again before preparing a workspace.')
+      indexTree = (await this.git(active.snapshot.repository, ['write-tree'])).toString().trim()
+      if (
+        digest(await this.git(active.snapshot.repository, ['ls-files', '--stage', '-z'])) !==
+        active.indexDigest
+      )
+        throw new Error('The index changed during preparation. Compare again.')
+    }
+    return { ...structuredClone(active.snapshot), indexTree }
+  }
+
   async refs(repository: string): Promise<RevisionSuggestion[]> {
     const refs = await this.git(repository, [
       'for-each-ref',

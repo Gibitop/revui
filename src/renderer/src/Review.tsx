@@ -1,3 +1,4 @@
+import { WorkspaceTools } from './WorkspaceTools'
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -148,6 +149,8 @@ function ReviewSession({
     }
   }, [initialComparison, openComparison, queryClient])
   const [selected, setSelected] = useState('')
+  const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null)
+
   const [scrollTarget, setScrollTarget] = useState<{ path: string } | null>(null)
   const [filter, setFilter] = useState('changed')
   const [search, setSearch] = useState('')
@@ -169,6 +172,7 @@ function ReviewSession({
   })
   useEffect(() => {
     setSelected(snapshot.data?.files[0]?.path ?? '')
+    setActiveWorkspace(null)
     setScrollTarget(null)
     setThreadFocus(null)
     setSearchHit(null)
@@ -347,11 +351,29 @@ function ReviewSession({
     <>
       {toolbar &&
         createPortal(
-          <ComparisonControls
-            repository={repository}
-            initial={initialComparison}
-            onCompare={openComparison}
-          />,
+          <div className="flex items-center gap-2">
+            <ComparisonControls
+              repository={repository}
+              initial={initialComparison}
+              onCompare={(comparison) => {
+                void window.desktop
+                  .leaveWorkspace(repository.path)
+                  .then((allowed) => {
+                    if (allowed) openComparison(comparison)
+                  })
+                  .catch((error) => setSnapshot((current) => ({ ...current, error })))
+              }}
+            />
+            {snapshot.data && (
+              <WorkspaceTools
+                key={snapshot.data.id}
+                snapshot={snapshot.data}
+                active={activeWorkspace}
+                setActive={setActiveWorkspace}
+                settings={settings}
+              />
+            )}
+          </div>,
           toolbar,
         )}
       <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -465,6 +487,7 @@ function ReviewSession({
                 visiblePaths.map((path) => (
                   <ReviewFileCard
                     key={`${snapshot.data!.id}:${path}`}
+                    workspaceId={activeWorkspace}
                     snapshot={snapshot.data!}
                     path={path}
                     record={records.data}

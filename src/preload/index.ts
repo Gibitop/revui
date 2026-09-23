@@ -2,6 +2,26 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { channels, type DesktopAPI } from '../shared/desktop'
 
 const desktop: DesktopAPI = {
+  workspaceAction: (...args) => ipcRenderer.invoke(channels.workspaceAction, ...args),
+  findWorkspace: (...args) => ipcRenderer.invoke(channels.findWorkspace, ...args),
+  initializeWorkspace: (...args) => ipcRenderer.invoke(channels.initializeWorkspace, ...args),
+  acknowledgeRestoration: (...args) => ipcRenderer.invoke(channels.acknowledgeRestoration, ...args),
+  cancelWorkspaceScript: () => ipcRenderer.invoke(channels.cancelWorkspaceScript),
+  listWorkspaces: (...args) => ipcRenderer.invoke(channels.listWorkspaces, ...args),
+  prepareWorkspace: (...args) => ipcRenderer.invoke(channels.prepareWorkspace, ...args),
+  restoreWorkspace: (...args) => ipcRenderer.invoke(channels.restoreWorkspace, ...args),
+  removeWorkspace: (...args) => ipcRenderer.invoke(channels.removeWorkspace, ...args),
+  leaveWorkspace: (...args) => ipcRenderer.invoke(channels.leaveWorkspace, ...args),
+  runWorkspaceScript: (...args) => ipcRenderer.invoke(channels.runWorkspaceScript, ...args),
+  openWorkspaceIDE: (...args) => ipcRenderer.invoke(channels.openWorkspaceIDE, ...args),
+  onScriptOutput: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, value: string) => listener(value)
+    ipcRenderer.on(channels.scriptOutput, handler)
+    return () => {
+      ipcRenderer.removeListener(channels.scriptOutput, handler)
+    }
+  },
+
   copyRelativePath: (path) => ipcRenderer.invoke(channels.copyRelativePath, path),
   getRepositoryRefs: (repository) => ipcRenderer.invoke(channels.getRepositoryRefs, repository),
   searchReviewContents: (snapshot, query) =>

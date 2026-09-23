@@ -1,3 +1,4 @@
+import { IDEButton } from './IDEButton'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -37,7 +38,9 @@ export function ReviewFileCard({
   threadFocus,
   threadVisit,
   searchHit,
+  workspaceId,
 }: {
+  workspaceId: string | null
   snapshot: Snapshot
   path: string
   record?: ReviewRecord
@@ -319,6 +322,17 @@ export function ReviewFileCard({
         >
           {copied ? <Check /> : <Copy />}
         </Button>
+        <IDEButton
+          repository={snapshot.repository}
+          workspaceId={workspaceId}
+          path={path}
+          line={
+            range && range.side !== 'deletions' && range.endSide !== 'deletions'
+              ? Math.min(range.start, range.end)
+              : (searchHit?.line ?? 1)
+          }
+          settings={settings}
+        />
         <span role="status" className="sr-only">
           {copied ? `Copied ${path}` : ''}
         </span>
