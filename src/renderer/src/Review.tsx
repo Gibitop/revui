@@ -3,7 +3,6 @@ import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } fro
 import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Virtualizer } from '@pierre/diffs/react'
-import { ArrowLeft, ArrowRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { Comparison, ContentMatch, LocalThread, Snapshot } from '../../shared/review'
 import type { PreferencesPatch, Repository, Settings } from '../../shared/desktop'
 import { Button } from '@/components/ui/button'
@@ -25,8 +24,10 @@ export function Review({
   theme,
   preferences,
   toolbar,
+  searchToolbar,
 }: {
   toolbar: HTMLElement | null
+  searchToolbar: HTMLElement | null
   repository: Repository
   settings: Settings
   theme: 'light' | 'dark'
@@ -54,6 +55,7 @@ export function Review({
         theme={theme}
         preferences={preferences}
         toolbar={toolbar}
+        searchToolbar={searchToolbar}
         initial={recent.data ?? defaultComparison}
       />
     </>
@@ -67,8 +69,10 @@ function ReviewSession({
   preferences,
   initial,
   toolbar,
+  searchToolbar,
 }: {
   toolbar: HTMLElement | null
+  searchToolbar: HTMLElement | null
   repository: Repository
   settings: Settings
   theme: 'light' | 'dark'
@@ -78,6 +82,7 @@ function ReviewSession({
   const [initialComparison] = useState(initial)
   const [sidebarWidth, setSidebarWidth] = useState(settings.sidebarWidth)
   const [searchHit, setSearchHit] = useState<(ContentMatch & { key: number }) | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
   const contentSearchRef = useRef<HTMLInputElement>(null)
 
   const queryClient = useQueryClient()
@@ -86,7 +91,7 @@ function ReviewSession({
     isPending: true,
   })
   const openComparison = useCallback(
-    (comparison: Comparison) => {
+    (comparison: Comparison, refresh = false) => {
       const previous = request.current
       if (previous) {
         previous.worker?.terminate()
@@ -102,9 +107,10 @@ function ReviewSession({
       request.current = current
       setSnapshot({ isPending: true })
       void window.desktop
-        .openComparison(repository.path, comparison, current.id)
+        .openComparison(repository.path, comparison, current.id, refresh)
         .then(async (data) => {
           if (request.current !== current) return
+          if (refresh) void queryClient.invalidateQueries({ queryKey: ['refs', repository.path] })
           current.snapshotId = data.id
           const worker = new ReviewWorker()
           current.worker = worker
@@ -148,6 +154,7 @@ function ReviewSession({
         queryClient.removeQueries({ queryKey: [key, current.snapshotId] })
     }
   }, [initialComparison, openComparison, queryClient])
+  const comparisonChange = useRef(0)
   const [selected, setSelected] = useState('')
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null)
 
@@ -266,7 +273,7 @@ function ReviewSession({
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
       event.preventDefault()
-      contentSearchRef.current?.focus()
+      setSearchOpen(true)
     }
     if (
       event.target instanceof HTMLElement &&
@@ -355,11 +362,14 @@ function ReviewSession({
             <ComparisonControls
               repository={repository}
               initial={initialComparison}
-              onCompare={(comparison) => {
+              isPending={snapshot.isPending}
+              onCompare={(comparison, refresh) => {
+                const change = ++comparisonChange.current
                 void window.desktop
                   .leaveWorkspace(repository.path)
                   .then((allowed) => {
-                    if (allowed) openComparison(comparison)
+                    if (allowed && change === comparisonChange.current)
+                      openComparison(comparison, refresh)
                   })
                   .catch((error) => setSnapshot((current) => ({ ...current, error })))
               }}
@@ -375,6 +385,26 @@ function ReviewSession({
             )}
           </div>,
           toolbar,
+        )}
+      {searchToolbar &&
+        createPortal(
+          <ContentSearch
+            snapshotId={snapshot.data?.id}
+            paths={paths}
+            filesByPath={filesByPath}
+            theme={theme}
+            inputRef={contentSearchRef}
+            open={searchOpen}
+            onOpenChange={setSearchOpen}
+            onSelect={(match) => {
+              setSelected(match.path)
+              setThreadFocus(null)
+              setSearchHit({ ...match, key: Date.now() })
+            }}
+            onClear={() => setSearchHit(null)}
+            hasHit={!!searchHit}
+          />,
+          searchToolbar,
         )}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <ReviewSidebar
@@ -393,67 +423,12 @@ function ReviewSession({
           selected={selected}
           select={select}
           theme={theme}
+          canNavigate={!!changed.length}
+          navigate={(direction) => navigate(direction)}
+          threadFocused={!!threadFocus}
+          onShowAll={() => setThreadFocus(null)}
         />
         <section className="flex min-w-0 flex-1 flex-col" aria-label="Code review">
-          <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b px-3 py-2 [&>*]:shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={settings.sidebarCollapsed ? 'Show file sidebar' : 'Hide file sidebar'}
-              title={settings.sidebarCollapsed ? 'Show file sidebar' : 'Hide file sidebar'}
-              aria-expanded={!settings.sidebarCollapsed}
-              aria-controls="review-files-sidebar"
-              onClick={() => preferences({ sidebarCollapsed: !settings.sidebarCollapsed })}
-            >
-              {settings.sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
-            </Button>
-            <Button
-              variant="ghost"
-              aria-label="Previous file"
-              disabled={!changed.length}
-              onClick={() => navigate(-1)}
-            >
-              <ArrowLeft aria-hidden="true" /> File
-            </Button>
-            <Button
-              variant="ghost"
-              aria-label="Next file"
-              disabled={!changed.length}
-              onClick={() => navigate(1)}
-            >
-              File <ArrowRight aria-hidden="true" />
-            </Button>
-            {!!unresolved.length && (
-              <>
-                <Button
-                  variant="ghost"
-                  aria-label="Previous thread"
-                  onClick={() => navigate(-1, true)}
-                >
-                  <ArrowLeft aria-hidden="true" /> Thread
-                </Button>
-                <Button variant="ghost" aria-label="Next thread" onClick={() => navigate(1, true)}>
-                  Thread <ArrowRight aria-hidden="true" />
-                </Button>
-              </>
-            )}
-            {threadFocus && (
-              <Button variant="ghost" onClick={() => setThreadFocus(null)}>
-                All changes
-              </Button>
-            )}
-            <ContentSearch
-              snapshotId={snapshot.data?.id}
-              inputRef={contentSearchRef}
-              onSelect={(match) => {
-                setSelected(match.path)
-                setThreadFocus(null)
-                setSearchHit({ ...match, key: Date.now() })
-              }}
-              onClear={() => setSearchHit(null)}
-              hasHit={!!searchHit}
-            />
-          </div>
           {snapshot.isPending && (
             <p className="p-6">
               Loading comparison…{' '}

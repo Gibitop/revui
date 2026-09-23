@@ -58,7 +58,13 @@ export type ReviewAction =
   | { kind: 'resolve'; thread: string; resolved: boolean }
   | { kind: 'reviewed'; path: string; reviewed: boolean }
 
-export type ContentMatch = { path: string; line: number; text: string }
+export type ContentSearchOptions = { matchCase?: boolean; wholeWord?: boolean; regex?: boolean }
+export type ContentMatch = {
+  path: string
+  line: number
+  text: string
+  ranges: { start: number; end: number }[]
+}
 export type ContentSearch = { matches: ContentMatch[]; truncated: boolean }
 
 export type RevisionSuggestion = {

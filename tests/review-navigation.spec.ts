@@ -73,13 +73,31 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     await expect(page.getByRole('complementary', { name: 'Review files' })).toBeHidden()
     await page.getByRole('button', { name: 'Show file sidebar' }).click()
     await expect(page.getByRole('tree')).toBeVisible()
-    await page.getByLabel('Search file contents').fill('needle')
+    const toolbar = page.getByRole('banner', { name: 'Repository toolbar' })
+    await expect(toolbar.getByRole('button', { name: 'Hide file sidebar' })).toBeVisible()
+    await expect(
+      toolbar.getByRole('button', { name: 'Search contents', exact: true }),
+    ).toBeVisible()
+    await expect(
+      page
+        .getByRole('complementary', { name: 'Review files' })
+        .getByRole('button', { name: 'Next file' }),
+    ).toBeVisible()
+    await page.keyboard.press('Control+f')
+    await expect(
+      page.getByRole('textbox', { name: 'Search file contents', exact: true }),
+    ).toBeFocused()
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Search contents', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Search file contents', exact: true }).fill('needle')
     await page
       .getByRole('region', { name: 'Content search results' })
       .getByRole('button', { name: /src\/long.ts:600/ })
       .click()
     await expect(file.locator('[data-line="600"]').last()).toBeVisible()
+    await page.getByRole('button', { name: 'Search contents', exact: true }).click()
     await page.getByRole('button', { name: 'Clear content search' }).click()
+    await page.getByRole('button', { name: 'Close search', exact: true }).click()
     await file.locator('[data-column-number="600"][data-line-type="change-addition"]').click()
     await page.getByLabel('Comment on src/long.ts').fill('Review this distant line')
     await page.getByRole('button', { name: 'Save thread', exact: true }).click()
@@ -97,7 +115,7 @@ test('long-file thread navigation stays inside the review pane; native copy and 
       await page.locator('[data-testid="diff-scroll"] > div').evaluate((node) => {
         node.scrollTop = 0
       })
-      await page.getByRole('button', { name: 'Next thread', exact: true }).focus()
+      await page.getByRole('button', { name: 'Next file', exact: true }).focus()
       await page.keyboard.press(shortcut)
       await expect
         .poll(() =>

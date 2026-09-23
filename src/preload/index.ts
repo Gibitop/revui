@@ -24,10 +24,10 @@ const desktop: DesktopAPI = {
 
   copyRelativePath: (path) => ipcRenderer.invoke(channels.copyRelativePath, path),
   getRepositoryRefs: (repository) => ipcRenderer.invoke(channels.getRepositoryRefs, repository),
-  searchReviewContents: (snapshot, query) =>
-    ipcRenderer.invoke(channels.searchReviewContents, snapshot, query),
-  openComparison: (repository, comparison, requestId) =>
-    ipcRenderer.invoke(channels.openComparison, repository, comparison, requestId),
+  searchReviewContents: (snapshot, query, paths, options) =>
+    ipcRenderer.invoke(channels.searchReviewContents, snapshot, query, paths, options),
+  openComparison: (repository, comparison, requestId, refresh) =>
+    ipcRenderer.invoke(channels.openComparison, repository, comparison, requestId, refresh),
   recentComparison: (repository) => ipcRenderer.invoke(channels.recentComparison, repository),
   cancelComparison: (requestId) => ipcRenderer.invoke(channels.cancelComparison, requestId),
   loadReviewFile: (snapshot, path, force = false) =>

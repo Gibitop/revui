@@ -346,14 +346,6 @@ export function ReviewFileCard({
             </span>
           </span>
         )}
-        {metadata && metadata.oldMode !== metadata.newMode && (
-          <span className="text-muted-foreground font-mono">
-            {metadata.oldMode}{' '}
-            <ArrowRight className="inline size-4 align-middle" aria-hidden="true" />
-            <span className="sr-only"> to </span> {metadata.newMode}
-          </span>
-        )}
-
         <Label className="ml-auto flex items-center gap-1.5 whitespace-nowrap">
           <Checkbox
             aria-label={`Reviewed ${path}`}

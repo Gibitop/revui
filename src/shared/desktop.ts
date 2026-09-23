@@ -3,6 +3,7 @@ import type {
   RevisionSuggestion,
   Comparison,
   ContentSearch,
+  ContentSearchOptions,
   FileContent,
   ReviewAction,
   ReviewRecord,
@@ -58,11 +59,17 @@ export type DesktopAPI = {
 
   copyRelativePath: (path: string) => Promise<void>
   getRepositoryRefs: (repository: string) => Promise<RevisionSuggestion[]>
-  searchReviewContents: (snapshot: string, query: string) => Promise<ContentSearch>
+  searchReviewContents: (
+    snapshot: string,
+    query: string,
+    paths?: string[],
+    options?: ContentSearchOptions,
+  ) => Promise<ContentSearch>
   openComparison: (
     repository: string,
     comparison: Comparison,
     requestId: string,
+    refresh?: boolean,
   ) => Promise<Snapshot>
   recentComparison: (repository: string) => Promise<Comparison | null>
   cancelComparison: (requestId: string) => Promise<void>

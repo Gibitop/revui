@@ -49,7 +49,6 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
     await page.getByRole('button', { name: 'Add repository', exact: true }).click()
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('HEAD~1')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
-    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(page.getByRole('tab', { name: 'Appearance', exact: true })).toHaveAttribute(
       'aria-selected',
@@ -192,7 +191,7 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
       .poll(async () => JSON.parse(await readFile(ideOutput, 'utf8').catch(() => '[]')))
       .toEqual(['--goto', `${await realpath(join(records[0].path, 'file.txt'))}:1`])
     // A new diff snapshot at the same target restores the initialized worktree automatically.
-    await page.getByRole('button', { name: 'Compare', exact: true }).click()
+    await page.getByRole('button', { name: 'Refresh comparison', exact: true }).click()
     await expect(projectIDE).toBeEnabled()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await projectIDE.click()
@@ -258,7 +257,7 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
       dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false })
     })
     // Comparing again leaves the prepared review and invokes the native restore prompt.
-    await page.getByRole('button', { name: 'Compare', exact: true }).click()
+    await page.getByRole('button', { name: 'Refresh comparison', exact: true }).click()
     await expect
       .poll(async () =>
         (await git('symbolic-ref', '--short', 'HEAD').catch(() => ({ stdout: '' }))).stdout.trim(),
@@ -274,7 +273,6 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
     )
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('release')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
-    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await toolbar.getByRole('button', { name: 'Initialize workspace', exact: true }).click()
     await expect(toolbar.getByRole('button', { name: 'Cancel setup', exact: true })).toBeVisible()
     await expect(page.getByRole('dialog')).toHaveCount(0)

@@ -1,8 +1,8 @@
-import { Checkbox } from '@/components/ui/checkbox'
+import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeftRight } from 'lucide-react'
+import { ArrowLeftRight, RefreshCw } from 'lucide-react'
 import type { Comparison } from '../../shared/review'
 import type { Repository } from '../../shared/desktop'
 import { RevisionSelect } from './RevisionSelect'
@@ -13,10 +13,12 @@ export function ComparisonControls({
   repository,
   initial,
   onCompare,
+  isPending,
 }: {
   repository: Repository
   initial: Comparison
-  onCompare: (comparison: Comparison) => void
+  onCompare: (comparison: Comparison, refresh?: boolean) => void
+  isPending: boolean
 }) {
   const [newRevision, setNewRevision] = useState(
     initial.target.kind === 'working'
@@ -42,28 +44,26 @@ export function ComparisonControls({
     !!oldRevision.trim() &&
     !['Uncommitted', 'Index'].includes(newRevision) &&
     !['Uncommitted', 'Index'].includes(oldRevision)
+  const comparison: Comparison = {
+    base: oldRevision === 'Index' ? { kind: 'index' } : { kind: 'commit', ref: oldRevision.trim() },
+    target:
+      newRevision === 'Uncommitted'
+        ? { kind: 'working' }
+        : newRevision === 'Index'
+          ? { kind: 'index' }
+          : { kind: 'commit', ref: newRevision.trim() },
+    mode: canSwap ? mode : 'direct',
+  }
+  const options = JSON.stringify(comparison)
+  const previousOptions = useRef(options)
+  const compare = useEffectEvent(() => onCompare(comparison))
+  useEffect(() => {
+    if (previousOptions.current === options) return
+    previousOptions.current = options
+    if (newRevision.trim() && oldRevision.trim()) compare()
+  }, [options, newRevision, oldRevision])
   return (
-    <form
-      data-testid="comparison-controls"
-      className="flex items-center gap-2"
-      onSubmit={(event) => {
-        event.preventDefault()
-        const target: Comparison['target'] =
-          newRevision === 'Uncommitted'
-            ? { kind: 'working' }
-            : newRevision === 'Index'
-              ? { kind: 'index' }
-              : { kind: 'commit', ref: newRevision.trim() }
-        const base: Comparison['base'] =
-          oldRevision === 'Index' ? { kind: 'index' } : { kind: 'commit', ref: oldRevision.trim() }
-        onCompare({
-          base,
-          target,
-          mode: base.kind === 'commit' && target.kind === 'commit' ? mode : 'direct',
-        })
-        void refs.refetch()
-      }}
-    >
+    <div data-testid="comparison-controls" className="comparison-controls flex items-center gap-2">
       <RevisionSelect
         label="Old"
         value={oldRevision}
@@ -93,7 +93,10 @@ export function ComparisonControls({
       <RevisionSelect
         label="New"
         value={newRevision}
-        onChange={setNewRevision}
+        onChange={(value) => {
+          setNewRevision(value)
+          if (value !== 'Uncommitted' && oldRevision === 'Index') setOldRevision('HEAD')
+        }}
         suggestions={[
           { value: 'Uncommitted', kind: 'working' },
           { value: 'Index', kind: 'index' },
@@ -101,10 +104,10 @@ export function ComparisonControls({
         ]}
       />
       {newRevision !== 'Uncommitted' && newRevision !== 'Index' && oldRevision !== 'Index' && (
-        <Label className="flex shrink-0 items-center gap-1 whitespace-nowrap">
-          <Checkbox
+        <Label className="mx-2 flex shrink-0 items-center gap-2 whitespace-nowrap">
+          <Switch
             checked={mode === 'merge-base'}
-            onCheckedChange={(checked) => setMode(checked === true ? 'merge-base' : 'direct')}
+            onCheckedChange={(checked) => setMode(checked ? 'merge-base' : 'direct')}
           />
           Merge-base
           <Tooltip label="Compare the New revision with the common ancestor of Old and New. This shows changes introduced on New since the branches diverged.">
@@ -119,9 +122,21 @@ export function ComparisonControls({
           </Tooltip>
         </Label>
       )}
-      <Button variant="outline" type="submit">
-        Compare
-      </Button>
-    </form>
+      <Tooltip label="Fetch and refresh comparison">
+        <span className="inline-flex shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            type="button"
+            aria-label="Refresh comparison"
+            aria-busy={isPending}
+            disabled={isPending || !newRevision.trim() || !oldRevision.trim()}
+            onClick={() => onCompare(comparison, true)}
+          >
+            <RefreshCw className={isPending ? 'animate-spin' : undefined} />
+          </Button>
+        </span>
+      </Tooltip>
+    </div>
   )
 }

@@ -100,13 +100,18 @@ test('tree errors recover; shadcn controls and background reads preserve the rev
     await from.fill('HEAD~0')
     await from.press('Escape')
     await expect(from).toHaveValue('HEAD~0')
-    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await expect(page.getByText('No files match this view.')).toBeVisible()
+    await expect(page.getByTestId('comparison-controls')).toHaveCSS('-webkit-app-region', 'no-drag')
+    const mergeMode = page.getByRole('switch', { name: /Merge-base/ })
+    await mergeMode.click()
+    await expect(mergeMode).toBeChecked()
+    await expect(page.getByRole('button', { name: 'Refresh comparison' })).toBeEnabled()
+    await mergeMode.click()
+    await expect(mergeMode).not.toBeChecked()
     await from.fill('Uncommitted')
     await from.press('ArrowDown')
     await from.press('Enter')
     await expect(from).toHaveValue('Uncommitted')
-    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     const file = page.getByRole('article', { name: 'first.ts', exact: true })
     await expect(file.locator('[data-line]').first()).toBeVisible()
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
@@ -174,6 +179,27 @@ test('tree errors recover; shadcn controls and background reads preserve the rev
         })
       }
     }
+    await application.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler('review:open')
+      ipcMain.handle('review:open', (_event, _repository, _comparison, _requestId, refresh) => {
+        if (refresh !== true) throw new Error('Refresh must request a Git fetch')
+        return new Promise((_resolve, reject) => {
+          ;(globalThis as unknown as { finishRefresh: () => void }).finishRefresh = () =>
+            reject(new Error('Injected fetch failure'))
+        })
+      })
+    })
+    const refresh = page.getByRole('button', { name: 'Refresh comparison', exact: true })
+    await refresh.click()
+    await expect(refresh).toBeDisabled()
+    await expect(refresh).toHaveAttribute('aria-busy', 'true')
+    await expect(refresh.locator('svg')).toHaveClass(/animate-spin/)
+    await application.evaluate(() =>
+      (globalThis as unknown as { finishRefresh: () => void }).finishRefresh(),
+    )
+    await expect(page.getByRole('alert')).toContainText('Injected fetch failure')
+    await expect(refresh).toBeEnabled()
+    await expect(refresh).toHaveAttribute('aria-busy', 'false')
   } finally {
     await application.close()
     await rm(root, { recursive: true, force: true })

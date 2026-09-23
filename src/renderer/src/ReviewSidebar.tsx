@@ -3,7 +3,15 @@ import { Menu } from '@base-ui/react/menu'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { preparePresortedFileTreeInput, type GitStatus } from '@pierre/trees'
 import { FileTree, useFileTree } from '@pierre/trees/react'
-import { Check, Filter, Files, FileDiff as FileDiffIcon, MessagesSquare } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Filter,
+  Files,
+  FileDiff as FileDiffIcon,
+  MessagesSquare,
+} from 'lucide-react'
 import type { Snapshot } from '../../shared/review'
 import type { Settings, PreferencesPatch } from '../../shared/desktop'
 import { Button } from '@/components/ui/button'
@@ -35,7 +43,15 @@ export function ReviewSidebar({
   selected,
   select,
   theme,
+  canNavigate,
+  navigate,
+  threadFocused,
+  onShowAll,
 }: {
+  canNavigate: boolean
+  navigate: (direction: number) => void
+  threadFocused: boolean
+  onShowAll: () => void
   snapshot?: Snapshot
   settings: Settings
   sidebarWidth: number
@@ -113,19 +129,50 @@ export function ReviewSidebar({
               </Menu.Portal>
             </Menu.Root>
           </div>
-          <span
-            data-testid="line-totals"
-            className="flex gap-2 whitespace-nowrap tabular-nums"
-            title="Text lines added and deleted in the listed files. Binary files have no line count."
-          >
-            <span data-testid="git-added" className="text-git-added">
-              +{totals.additions}
+          <div className="flex items-center justify-between gap-1">
+            <span
+              data-testid="line-totals"
+              className="flex gap-2 whitespace-nowrap tabular-nums"
+              title="Text lines added and deleted in the listed files. Binary files have no line count."
+            >
+              <span data-testid="git-added" className="text-git-added">
+                +{totals.additions}
+              </span>
+              <span data-testid="git-deleted" className="text-git-deleted">
+                −{totals.deletions}
+              </span>
+              <span className="text-muted-foreground">· {paths.length} files</span>
             </span>
-            <span data-testid="git-deleted" className="text-git-deleted">
-              −{totals.deletions}
-            </span>
-            <span className="text-muted-foreground">· {paths.length} files</span>
-          </span>
+            <div className="flex shrink-0">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                aria-label="Previous file"
+                title="Previous file"
+                disabled={!canNavigate}
+                onClick={() => navigate(-1)}
+              >
+                <ArrowLeft className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-6"
+                aria-label="Next file"
+                title="Next file"
+                disabled={!canNavigate}
+                onClick={() => navigate(1)}
+              >
+                <ArrowRight className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+          {threadFocused && (
+            <Button variant="ghost" onClick={onShowAll}>
+              All changes
+            </Button>
+          )}
         </div>
         {!!snapshot && (
           <ReviewTree
@@ -239,7 +286,7 @@ function ReviewTree({
   }, [paths, attempt])
   const { model } = useFileTree({
     preparedInput: prepared,
-    density: 'compact',
+    density: 'default',
     stickyFolders: true,
     initialExpansion: 'open',
     onSelectionChange: (selected) => {

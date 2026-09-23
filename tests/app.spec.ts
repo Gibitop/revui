@@ -251,7 +251,8 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
       .getByRole('button', { name: new RegExp(basename(repository)) })
       .click()
     await expect.poll(() => file.locator('[data-line] span[style]').count()).toBeGreaterThan(0)
-    await page.getByLabel('Search file contents').fill('stable')
+    await page.getByRole('button', { name: 'Search contents', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Search file contents', exact: true }).fill('stable')
     await page
       .getByRole('region', { name: 'Content search results' })
       .getByRole('button', { name: /unchanged.ts:301/ })
@@ -273,7 +274,9 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await page.mouse.up()
     await expect(unchanged.locator('[data-testid="thread-composer"]')).toBeVisible()
     await unchanged.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await page.getByRole('button', { name: 'Search contents', exact: true }).click()
     await page.getByRole('button', { name: 'Clear content search' }).click()
+    await page.getByRole('button', { name: 'Close search', exact: true }).click()
     await page.getByRole('button', { name: 'Next file', exact: true }).click()
     await expect(page.getByRole('tablist', { name: 'Diff layout' })).toHaveCount(0)
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
@@ -338,7 +341,6 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await page.getByRole('menuitemradio', { name: 'Changed files', exact: true }).click()
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('Index')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
-    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await expect(file.locator('[data-line]')).not.toHaveCount(0)
     await expect(file.getByText('Please explain this value.')).toHaveCount(0)
     await expect(page.getByTestId('line-totals')).toContainText('· 1 files')
@@ -346,15 +348,13 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
     await page.getByRole('combobox', { name: 'Old', exact: true }).fill('Index')
     await page.getByRole('combobox', { name: 'Old', exact: true }).press('Escape')
-    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await expect(file.locator('[data-line]')).not.toHaveCount(0)
     await page.getByRole('combobox', { name: 'Old', exact: true }).fill('HEAD')
     await page.getByRole('combobox', { name: 'Old', exact: true }).press('Escape')
-    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await expect(file.getByText('Please explain this value.')).toBeVisible()
     await expect(file.getByRole('checkbox')).toBeChecked()
     await writeFile(join(repository, 'example.ts'), 'export const value = 4;\n')
-    await page.getByRole('button', { name: 'Compare', exact: true }).click()
+    await page.getByRole('button', { name: 'Refresh comparison', exact: true }).click()
     await expect(
       file.getByText('1 outdated threads — preserved from earlier content'),
     ).toBeVisible()
@@ -370,6 +370,18 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
     await page.getByRole('button', { name: 'About merge-base' }).hover()
     await expect(page.getByRole('tooltip')).toContainText('common ancestor')
+    await page.getByRole('switch', { name: 'Merge-base' }).click()
+    await expect(page.getByText('No files match this view.')).toBeVisible()
+    await page.getByRole('button', { name: 'Swap Old and New' }).click()
+    await expect(page.getByRole('combobox', { name: 'Old', exact: true })).toHaveValue('main')
+    await expect(page.getByRole('combobox', { name: 'New', exact: true })).toHaveValue('HEAD')
+    await page.getByRole('combobox', { name: 'Old', exact: true }).fill('HEAD')
+    await page.getByRole('combobox', { name: 'Old', exact: true }).press('Escape')
+    await page.getByRole('combobox', { name: 'New', exact: true }).fill('Uncommitted')
+    await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
+    await expect(
+      page.getByText('1 outdated threads — preserved from earlier content'),
+    ).toBeVisible()
     expect(
       await application.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows().every((window) => !window.isVisible()),

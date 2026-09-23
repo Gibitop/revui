@@ -33,6 +33,24 @@ app.on('before-quit', () => {
 })
 let settings: SettingsStore
 
+if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+  // The dev launcher can exit without terminating Electron on macOS.
+  // Release the instance lock when the server's owning process disappears.
+  const launcherPid = process.ppid
+  const launcherCheck = setInterval(() => {
+    try {
+      process.kill(launcherPid, 0)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+        clearInterval(launcherCheck)
+        app.quit()
+      }
+    }
+  }, 1000)
+  launcherCheck.unref()
+  app.on('will-quit', () => clearInterval(launcherCheck))
+}
+
 function assertSender(event: IpcMainInvokeEvent): void {
   if (
     !window ||
@@ -172,26 +190,39 @@ if (!app.requestSingleInstanceLock()) {
         assertSender(event)
         return reviews.refs(repositoryPath(repository))
       })
-      ipcMain.handle(channels.searchReviewContents, (event, id: unknown, query: unknown) => {
-        assertSender(event)
-        return reviews.search(
-          z.string().parse(id),
-          z
-            .string()
-            .min(1)
-            .max(1000)
-            .refine((value) => !/[\0\r\n]/.test(value))
-            .parse(query),
-        )
-      })
+      ipcMain.handle(
+        channels.searchReviewContents,
+        (event, id: unknown, query: unknown, paths: unknown, options: unknown) => {
+          assertSender(event)
+          return reviews.search(
+            z.string().parse(id),
+            z
+              .string()
+              .min(1)
+              .max(1000)
+              .refine((value) => !/[\0\r\n]/.test(value))
+              .parse(query),
+            z.array(z.string()).optional().parse(paths),
+            z
+              .object({
+                matchCase: z.boolean().optional(),
+                wholeWord: z.boolean().optional(),
+                regex: z.boolean().optional(),
+              })
+              .optional()
+              .parse(options),
+          )
+        },
+      )
       ipcMain.handle(
         channels.openComparison,
-        (event, repository: unknown, comparison: unknown, requestId: unknown) => {
+        (event, repository: unknown, comparison: unknown, requestId: unknown, refresh: unknown) => {
           assertSender(event)
           return reviews.open(
             repositoryPath(repository),
             comparisonSchema.parse(comparison),
             z.string().uuid().parse(requestId),
+            z.boolean().optional().parse(refresh),
           )
         },
       )

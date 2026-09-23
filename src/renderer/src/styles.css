@@ -121,6 +121,7 @@
   -webkit-app-region: drag;
 }
 .toolbar form,
+.toolbar .comparison-controls,
 [data-slot='combobox-content'],
 input,
 textarea {

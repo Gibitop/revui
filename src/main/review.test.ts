@@ -315,14 +315,14 @@ it('suggests refs and searches commit, index and working-tree contents without c
   let snapshot = await service.open(repository, all)
   expect((await service.search(snapshot.id, 'needle')).matches).toEqual(
     expect.arrayContaining([
-      { path: 'file.txt', line: 1, text: 'working needle' },
-      { path: oddPath, line: 1, text: 'untracked NEEDLE' },
+      { path: 'file.txt', line: 1, text: 'working needle', ranges: [{ start: 8, end: 14 }] },
+      { path: oddPath, line: 1, text: 'untracked NEEDLE', ranges: [{ start: 10, end: 16 }] },
     ]),
   )
   expect((await service.search(snapshot.id, 'does not exist')).matches).toEqual([])
   snapshot = await service.open(repository, { ...all, target: { kind: 'index' } })
   expect((await service.search(snapshot.id, 'needle')).matches).toEqual([
-    { path: 'file.txt', line: 1, text: 'staged needle' },
+    { path: 'file.txt', line: 1, text: 'staged needle', ranges: [{ start: 7, end: 13 }] },
   ])
   await git('add', 'file.txt')
   await expect(service.search(snapshot.id, 'needle')).rejects.toThrow('index changed')
@@ -332,7 +332,7 @@ it('suggests refs and searches commit, index and working-tree contents without c
     mode: 'direct',
   })
   expect((await service.search(snapshot.id, 'two')).matches).toEqual([
-    { path: 'file.txt', line: 2, text: 'two' },
+    { path: 'file.txt', line: 2, text: 'two', ranges: [{ start: 0, end: 3 }] },
   ])
 })
 
@@ -435,10 +435,126 @@ it('streams and truncates searches only when there are more than 500 eligible ma
     const snapshot = await service.open(repository, { ...all, target: { kind: 'index' } })
     const result = await service.search(snapshot.id, 'NEEDLE')
     expect(result.matches).toHaveLength(500)
-    expect(result.matches[499]).toEqual({ path: 'file.txt', line: 500, text: 'needle Ω 499' })
+    expect(result.matches[499]).toEqual({
+      path: 'file.txt',
+      line: 500,
+      text: 'needle Ω 499',
+      ranges: [{ start: 0, end: 6 }],
+    })
     expect(result.truncated).toBe(count > 500)
     expect(await service.search(snapshot.id, 'absent')).toEqual({ matches: [], truncated: false })
   }
+})
+
+it('filters search paths before truncation and supports empty file-tree filters', async () => {
+  const { repository, git, write, service } = await fixture()
+  await write('file.txt', 'needle\n'.repeat(600))
+  await write('selected.txt', 'selected needle\n')
+  await git('add', '.')
+  const snapshot = await service.open(repository, { ...all, target: { kind: 'index' } })
+  expect(await service.search(snapshot.id, 'needle', ['selected.txt'])).toEqual({
+    matches: [
+      { path: 'selected.txt', line: 1, text: 'selected needle', ranges: [{ start: 9, end: 15 }] },
+    ],
+    truncated: false,
+  })
+  expect(await service.search(snapshot.id, 'needle', [])).toEqual({
+    matches: [],
+    truncated: false,
+  })
+  expect((await service.search(snapshot.id, 'needle', snapshot.paths)).truncated).toBe(true)
+})
+
+it('combines case, whole-word and regex search modifiers and reports invalid patterns', async () => {
+  const { repository, write, service } = await fixture()
+  await write('file.txt', 'Needle\nneedle\nneedles\nneedle_thing\nneedle.42\nneedleX42\n')
+  await write('other.txt', 'Needle\n')
+  const snapshot = await service.open(repository, all)
+  const paths = ['file.txt']
+  expect((await service.search(snapshot.id, 'needle', paths)).matches).toHaveLength(6)
+  expect(
+    (await service.search(snapshot.id, 'needle', paths, { matchCase: true })).matches,
+  ).toHaveLength(5)
+  expect(
+    (await service.search(snapshot.id, 'needle', paths, { wholeWord: true })).matches.map(
+      (m) => m.line,
+    ),
+  ).toEqual([1, 2, 5])
+  expect(
+    (
+      await service.search(snapshot.id, 'Need(le|less)', paths, {
+        regex: true,
+        matchCase: true,
+        wholeWord: true,
+      })
+    ).matches.map((m) => m.line),
+  ).toEqual([1])
+  expect(
+    (await service.search(snapshot.id, 'needle.42', paths)).matches.map((m) => m.line),
+  ).toEqual([5])
+  expect(
+    (await service.search(snapshot.id, 'needle.42', paths, { regex: true })).matches.map(
+      (m) => m.line,
+    ),
+  ).toEqual([5, 6])
+  await expect(service.search(snapshot.id, '[', paths, { regex: true })).rejects.toThrow()
+})
+
+it('supports regex shorthand classes and highlights whitespace instead of literal letters', async () => {
+  const { repository, write, service } = await fixture()
+  await write('file.txt', 'sss\ns s\n\tss  42\nword_word\n\\s\n')
+  const snapshot = await service.open(repository, all)
+  const spaces = await service.search(snapshot.id, String.raw`\s+`, ['file.txt'], { regex: true })
+  expect(spaces.matches.map((match) => ({ line: match.line, ranges: match.ranges }))).toEqual([
+    { line: 2, ranges: [{ start: 1, end: 2 }] },
+    {
+      line: 3,
+      ranges: [
+        { start: 0, end: 1 },
+        { start: 3, end: 5 },
+      ],
+    },
+  ])
+  const digits = await service.search(snapshot.id, String.raw`\d+`, ['file.txt'], { regex: true })
+  expect(digits.matches[0].ranges).toEqual([{ start: 5, end: 7 }])
+  const words = await service.search(snapshot.id, String.raw`\b\w+_\w+\b`, ['file.txt'], {
+    regex: true,
+  })
+  expect(words.matches.map((match) => match.line)).toEqual([4])
+  const literal = await service.search(snapshot.id, String.raw`\s`, ['file.txt'])
+  expect(literal.matches.map((match) => match.line)).toEqual([5])
+})
+
+it('keeps regex matches visible in previews after long Unicode prefixes', async () => {
+  const { repository, write, service } = await fixture()
+  await write('file.txt', 'Ω'.repeat(400) + 'needle42\n')
+  const snapshot = await service.open(repository, all)
+  const result = await service.search(snapshot.id, 'needle[0-9]+', ['file.txt'], { regex: true })
+  expect(result.matches[0].text).toBe('…' + 'Ω'.repeat(80) + 'needle42')
+  expect(result.matches[0].ranges).toEqual([{ start: 81, end: 89 }])
+})
+
+it('returns all match ranges with Git regex, word and case semantics', async () => {
+  const { repository, write, service } = await fixture()
+  await write('file.txt', 'Ω cat cats CAT cat42 cat\n')
+  const snapshot = await service.open(repository, all)
+  const literal = await service.search(snapshot.id, 'cat', undefined, { wholeWord: true })
+  expect(literal.matches[0].ranges).toEqual([
+    { start: 2, end: 5 },
+    { start: 11, end: 14 },
+    { start: 21, end: 24 },
+  ])
+  const sensitive = await service.search(snapshot.id, 'cat', undefined, {
+    wholeWord: true,
+    matchCase: true,
+  })
+  expect(sensitive.matches[0].ranges).toEqual([
+    { start: 2, end: 5 },
+    { start: 21, end: 24 },
+  ])
+  const regex = await service.search(snapshot.id, 'cat[[:digit:]]+', undefined, { regex: true })
+  expect(regex.matches[0].ranges).toEqual([{ start: 15, end: 20 }])
+  expect(regex.matches[0].text).toBe('Ω cat cats CAT cat42 cat')
 })
 
 it('does not turn canceled searches or Git failures into empty successful results', async () => {
@@ -451,4 +567,31 @@ it('does not turn canceled searches or Git failures into empty successful result
   const replacement = await service.open(repository, all)
   await rm(join(repository, '.git'), { recursive: true, force: true })
   await expect(service.search(replacement.id, 'one')).rejects.toThrow()
+})
+
+it('fetches remote updates before resolving a refreshed comparison', async () => {
+  const { root, repository, git, write, service } = await fixture()
+  const remote = join(root, 'remote')
+  await exec('git', ['clone', '--bare', repository, remote])
+  await git('remote', 'add', 'origin', remote)
+  await git('fetch')
+  await write('file.txt', 'new remote content\n')
+  await git('commit', '-am', 'remote update')
+  await git('push', 'origin', 'main')
+  await git('reset', '--hard', 'HEAD~1')
+  // Reset the tracking ref to simulate an update made by another checkout.
+  await git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+  const comparison: Comparison = {
+    base: { kind: 'commit', ref: 'HEAD' },
+    target: { kind: 'commit', ref: 'origin/main' },
+    mode: 'direct',
+  }
+  expect((await service.open(repository, comparison)).files).toHaveLength(0)
+  const refreshed = await service.open(repository, comparison, undefined, true)
+  expect(refreshed.files.map((file) => file.path)).toEqual(['file.txt'])
+  expect((await service.content(refreshed.id, 'file.txt')).newFile?.contents).toBe(
+    'new remote content\n',
+  )
+  await git('remote', 'set-url', 'origin', join(root, 'missing-remote'))
+  await expect(service.open(repository, comparison, undefined, true)).rejects.toThrow()
 })

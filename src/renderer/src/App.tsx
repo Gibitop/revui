@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, Loader2, Settings2 } from 'lucide-react'
+import { FolderOpen, Loader2, PanelLeftClose, PanelLeftOpen, Settings2 } from 'lucide-react'
 import type { Bootstrap, PreferencesPatch, Repository } from '../../shared/desktop'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
@@ -17,6 +17,7 @@ export function App() {
   })
   const [repository, setRepository] = useState<Repository | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [searchToolbar, setSearchToolbar] = useState<HTMLDivElement | null>(null)
   const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null)
   const preferences = useMutation({
     mutationFn: (patch: PreferencesPatch) => window.desktop.updatePreferences(patch),
@@ -110,6 +111,20 @@ export function App() {
           className="toolbar flex h-12 shrink-0 items-center gap-2.5 border-b bg-surface px-3"
           aria-label="Repository toolbar"
         >
+          {repository && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              aria-label={settings.sidebarCollapsed ? 'Show file sidebar' : 'Hide file sidebar'}
+              title={settings.sidebarCollapsed ? 'Show file sidebar' : 'Hide file sidebar'}
+              aria-expanded={!settings.sidebarCollapsed}
+              aria-controls="review-files-sidebar"
+              onClick={() => preferences.mutate({ sidebarCollapsed: !settings.sidebarCollapsed })}
+            >
+              {settings.sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
+            </Button>
+          )}
           <Tooltip
             label={`${repository ? 'Open another repository' : 'Open repository'} (${commandKey}O)`}
           >
@@ -129,6 +144,7 @@ export function App() {
             className="window-drag-space flex-[1_0_90px] self-stretch"
             aria-hidden="true"
           />
+          {repository && <div ref={setSearchToolbar} className="flex shrink-0" />}
           <Tooltip label={`Settings (${commandKey},)`}>
             <Button
               variant="ghost"
@@ -151,6 +167,7 @@ export function App() {
           {repository ? (
             <Review
               toolbar={toolbar}
+              searchToolbar={searchToolbar}
               key={repository.path}
               repository={repository}
               settings={settings}

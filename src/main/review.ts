@@ -8,6 +8,7 @@ import type {
   RevisionSuggestion,
   Comparison,
   ContentSearch,
+  ContentSearchOptions,
   FileContent,
   ReviewAction,
   ReviewFile,
@@ -156,6 +157,7 @@ export class ReviewService {
     repository: string,
     input: Comparison,
     requestId: string = randomUUID(),
+    refresh = false,
   ): Promise<Snapshot> {
     const comparison = comparisonSchema.parse(input)
     if (
@@ -173,6 +175,7 @@ export class ReviewService {
     this.pending = { requestId, controller }
     const signal = controller.signal
     const started = Date.now()
+    if (refresh) await this.git(repository, ['fetch'], signal)
     for (const value of [comparison.base, comparison.target]) {
       if (value.kind !== 'commit') continue
       try {
@@ -462,26 +465,40 @@ export class ReviewService {
     return result
   }
 
-  async search(id: string, query: string): Promise<ContentSearch> {
+  async search(
+    id: string,
+    query: string,
+    paths?: string[],
+    options: ContentSearchOptions = {},
+  ): Promise<ContentSearch> {
     const active = this.get(id)
     this.searchController?.abort()
     const controller = new AbortController()
     this.searchController = controller
     const { snapshot } = active
+    const included = paths === undefined ? undefined : new Set(paths)
+    if (included?.size === 0) return { matches: [], truncated: false }
     const target = snapshot.comparison.target
     const args = [
+      // Ask Git for match boundaries so highlighting uses exactly its regex/word semantics.
+      '-c',
+      'color.grep.match=bold',
+      ...['filename', 'linenumber', 'column', 'separator', 'selected', 'context'].flatMap(
+        (field) => ['-c', `color.grep.${field}=`],
+      ),
       'grep',
       '-I',
-      '-i',
       '-n',
       '-z',
-      '-F',
+      options.regex ? '-P' : '-F',
       '--no-textconv',
-      '--no-column',
+      '--column',
       '--no-heading',
       '--no-break',
-      '--color=never',
+      '--color=always',
     ]
+    if (!options.matchCase) args.push('-i')
+    if (options.wholeWord) args.push('-w')
     if (target.kind === 'index') args.push('--cached')
     if (target.kind === 'working') args.push('--untracked', '--exclude-standard')
     args.push('-e', query)
@@ -522,14 +539,16 @@ export class ReviewService {
         while (true) {
           const pathEnd = buffered.indexOf('\0')
           const lineEnd = pathEnd < 0 ? -1 : buffered.indexOf('\0', pathEnd + 1)
-          const textEnd = lineEnd < 0 ? -1 : buffered.indexOf('\n', lineEnd + 1)
+          const columnEnd = lineEnd < 0 ? -1 : buffered.indexOf('\0', lineEnd + 1)
+          const textEnd = columnEnd < 0 ? -1 : buffered.indexOf('\n', columnEnd + 1)
           if (textEnd < 0) break
           const name = buffered.slice(0, pathEnd)
           const path = target.kind === 'commit' ? name.slice(target.ref.length + 1) : name
           const line = Number(buffered.slice(pathEnd + 1, lineEnd))
-          const body = buffered.slice(lineEnd + 1, textEnd)
+          const column = Number(buffered.slice(lineEnd + 1, columnEnd))
+          const coloredBody = buffered.slice(columnEnd + 1, textEnd)
           buffered = buffered.slice(textEnd + 1)
-          if (!active.tree.has(path)) continue
+          if (!active.tree.has(path) || (included && !included.has(path))) continue
           if (target.kind === 'working' && !checked.has(path)) {
             const stat = await lstat(join(snapshot.repository, path))
             const stamp = `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}`
@@ -546,12 +565,37 @@ export class ReviewService {
             child.kill()
             break search
           }
-          const matchStart = Math.max(0, body.toLowerCase().indexOf(query.toLowerCase()) - 80)
+          const ranges: { start: number; end: number }[] = []
+          let body = ''
+          let cursor = 0
+          const startMarker = '\u001b[1m'
+          const endMarker = '\u001b[m'
+          while (true) {
+            const start = coloredBody.indexOf(startMarker, cursor)
+            const end = start < 0 ? -1 : coloredBody.indexOf(endMarker, start + startMarker.length)
+            if (end < 0) break
+            body += coloredBody.slice(cursor, start)
+            const matchText = coloredBody.slice(start + startMarker.length, end)
+            ranges.push({ start: body.length, end: body.length + matchText.length })
+            body += matchText
+            cursor = end + endMarker.length
+          }
+          body += coloredBody.slice(cursor)
+          const matchOffset = Buffer.from(body)
+            .subarray(0, column - 1)
+            .toString().length
+          const matchStart = Math.max(0, matchOffset - 80)
           const matchEnd = matchStart + query.length + 240
           matches.push({
             path,
             line,
             text: `${matchStart ? '…' : ''}${body.slice(matchStart, matchEnd)}${body.length > matchEnd ? '…' : ''}`,
+            ranges: ranges
+              .filter((range) => range.end > matchStart && range.start < matchEnd)
+              .map((range) => ({
+                start: Math.max(range.start, matchStart) - matchStart + (matchStart ? 1 : 0),
+                end: Math.min(range.end, matchEnd) - matchStart + (matchStart ? 1 : 0),
+              })),
           })
         }
       }

@@ -76,7 +76,7 @@ export function RevisionSelect({
       </div>
       <ComboboxContent>
         <ComboboxEmpty className="p-1.5 text-muted-foreground">
-          Press Compare to use this ref
+          No matching suggestions
         </ComboboxEmpty>
         <ComboboxList>
           {matches.map((suggestion) => (
