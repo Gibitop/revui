@@ -378,3 +378,61 @@ test('diffs and file navigation follow the tree folders-first natural order', as
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('unresolved threads remain accessible after an untracked file disappears', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'revui-missing-thread-'))
+  const repository = join(root, 'repo')
+  await mkdir(repository)
+  const git = (...args: string[]) =>
+    promisify(execFile)('git', [
+      '-C',
+      repository,
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.com',
+      '-c',
+      'commit.gpgsign=false',
+      ...args,
+    ])
+  await git('init', '-b', 'main')
+  await git('commit', '--allow-empty', '-m', 'initial')
+  await writeFile(join(repository, 'temporary.txt'), 'review me\n')
+  const env: Record<string, string> = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    ),
+    REVUI_USER_DATA: join(root, 'data'),
+    REVUI_TEST_HIDDEN: '1',
+  }
+  delete env.ELECTRON_RUN_AS_NODE
+  delete env.ELECTRON_RENDERER_URL
+  const application = await electron.launch({ args: ['.'], env })
+  try {
+    const page = await application.firstWindow()
+    await application.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
+    }, repository)
+    await page.getByRole('button', { name: 'Open repository', exact: true }).click()
+    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    const file = page.getByRole('article', { name: 'temporary.txt', exact: true })
+    await file.locator('[data-column-number="1"][data-line-type="change-addition"]').click()
+    await page.getByLabel('Comment on temporary.txt').fill('Keep this unresolved note')
+    await page.getByRole('button', { name: 'Save thread', exact: true }).click()
+    await expect(file.getByText('Keep this unresolved note')).toBeVisible()
+    await rm(join(repository, 'temporary.txt'))
+    await page.getByRole('button', { name: 'Refresh comparison', exact: true }).click()
+    await page.getByRole('button', { name: 'Filter files', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Unresolved threads', exact: true }).click()
+    await page.getByRole('treeitem', { name: /temporary.txt/ }).click()
+    await file.getByText('1 outdated threads — preserved from earlier content').click()
+    await expect(file.getByText('Keep this unresolved note')).toBeVisible()
+    await file.getByRole('button', { name: 'Resolve', exact: true }).click()
+    await expect(page.getByRole('treeitem', { name: /temporary.txt/ })).toHaveCount(0)
+  } finally {
+    await application.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})

@@ -253,7 +253,7 @@ if (!app.requestSingleInstanceLock()) {
         assertSender(event)
         return reviews.update(z.string().parse(id), actionSchema.parse(action))
       })
-      app.on('before-quit', () => reviews.cancel())
+      app.on('will-quit', () => reviews.cancel())
       nativeTheme.on('updated', () => {
         updateWindowTheme()
         window?.webContents.send(

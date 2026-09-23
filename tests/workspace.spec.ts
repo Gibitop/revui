@@ -253,6 +253,20 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
     await page.getByRole('button', { name: 'Prepare workspace', exact: true }).click()
     await expect(projectIDE).toBeEnabled()
     await expect(page.getByRole('dialog')).toHaveCount(0)
+    const inPlace = (await page.evaluate((path) => window.desktop.listWorkspaces(path), repo)).find(
+      (record) => record.kind === 'in-place' && record.phase === 'ready',
+    )!
+    await application.evaluate(({ dialog, app }) => {
+      dialog.showMessageBox = async () => ({ response: 2, checkboxChecked: false })
+      app.quit()
+    })
+    // Canceling the native quit prompt must leave the review usable.
+    expect(
+      await page.evaluate(
+        (id) => window.desktop.loadReviewFile(id, 'file.txt', false),
+        inPlace.snapshot,
+      ),
+    ).toMatchObject({ newFile: { contents: 'before\n' } })
     await application.evaluate(({ dialog }) => {
       dialog.showMessageBox = async () => ({ response: 0, checkboxChecked: false })
     })

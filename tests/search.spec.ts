@@ -30,7 +30,15 @@ test('large search results stay responsive and retain syntax and match highlight
       (_, index) => `export const needle${index} = { value: "needle", enabled: true };`,
     ).join('\n'),
   )
-  const env = { ...process.env, REVUI_USER_DATA: join(root, 'data'), REVUI_TEST_HIDDEN: '1' }
+  const env: Record<string, string> = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    ),
+    REVUI_USER_DATA: join(root, 'data'),
+    REVUI_TEST_HIDDEN: '1',
+  }
   delete env.ELECTRON_RUN_AS_NODE
   delete env.ELECTRON_RENDERER_URL
   const application = await electron.launch({ args: ['.'], env })

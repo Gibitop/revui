@@ -251,6 +251,8 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
       .getByRole('button', { name: new RegExp(basename(repository)) })
       .click()
     await expect.poll(() => file.locator('[data-line] span[style]').count()).toBeGreaterThan(0)
+    await page.getByRole('button', { name: 'Filter files', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'All files', exact: true }).click()
     await page.getByRole('button', { name: 'Search contents', exact: true }).click()
     await page.getByRole('textbox', { name: 'Search file contents', exact: true }).fill('stable')
     await page
@@ -277,6 +279,8 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await page.getByRole('button', { name: 'Search contents', exact: true }).click()
     await page.getByRole('button', { name: 'Clear content search' }).click()
     await page.getByRole('button', { name: 'Close search', exact: true }).click()
+    await page.getByRole('button', { name: 'Filter files', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Changed files', exact: true }).click()
     await page.getByRole('button', { name: 'Next file', exact: true }).click()
     await expect(page.getByRole('tablist', { name: 'Diff layout' })).toHaveCount(0)
     await page.getByRole('button', { name: 'Settings', exact: true }).click()

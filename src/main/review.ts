@@ -1,7 +1,19 @@
 import { createReadStream } from 'node:fs'
 import { execFile, spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { lstat, readFile, readlink, realpath, mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  lstat,
+  readFile,
+  readlink,
+  realpath,
+  mkdir,
+  mkdtemp,
+  chmod,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { z } from 'zod'
 import type {
@@ -135,7 +147,7 @@ export class ReviewService {
           env: { ...process.env, GIT_LITERAL_PATHSPECS: '1', GIT_TERMINAL_PROMPT: '0' },
         },
         (error, stdout) => {
-          if (error) reject(error)
+          if (error && !(error.code === 1 && args.includes('--no-index'))) reject(error)
           else resolve(stdout)
         },
       )
@@ -323,7 +335,61 @@ export class ReviewService {
     }
     for (const path of untracked.toString().split('\0').filter(Boolean)) {
       const stat = await lstat(join(repository, path))
-      const mode = stat.isSymbolicLink() ? '120000' : '100644'
+      const mode = stat.isSymbolicLink()
+        ? '120000'
+        : process.platform !== 'win32' && stat.mode & 0o111
+          ? '100755'
+          : '100644'
+      const deleted = files.get(path)
+      if (deleted?.status === 'D' && (stat.isFile() || stat.isSymbolicLink())) {
+        // Git treats a recreated staged deletion as untracked. Compare it with
+        // the original blob, without staging it or writing repository objects.
+        const temporary = await mkdtemp(join(tmpdir(), 'revui-diff-'))
+        try {
+          const before = join(temporary, 'before')
+          await writeFile(
+            before,
+            deleted.oldMode === '160000'
+              ? deleted.oldOid
+              : await this.git(repository, ['cat-file', 'blob', deleted.oldOid], signal),
+          )
+          if (deleted.oldMode === '100755') await chmod(before, 0o755)
+          let after = join(repository, path)
+          if (stat.isSymbolicLink()) {
+            const link = await readlink(after)
+            after = join(temporary, 'after')
+            await writeFile(after, link)
+          }
+          const counts = (
+            await this.git(
+              repository,
+              [
+                'diff',
+                '--no-index',
+                '--numstat',
+                '--no-ext-diff',
+                '--no-textconv',
+                '--',
+                before,
+                after,
+              ],
+              signal,
+            )
+          )
+            .toString()
+            .split('\t')
+          deleted.additions = counts[0] === '-' ? null : Number(counts[0] || 0)
+          deleted.deletions = counts[1] === '-' ? null : Number(counts[1] || 0)
+          deleted.newMode = mode
+          deleted.newOid = ''
+          deleted.status = deleted.oldMode.slice(0, 3) === mode.slice(0, 3) ? 'M' : 'T'
+          if (counts[0] === '' && deleted.oldMode === mode) files.delete(path)
+        } finally {
+          await rm(temporary, { recursive: true, force: true })
+        }
+        tree.set(path, { mode, oid: '' })
+        continue
+      }
       files.set(path, {
         additions: 0,
         deletions: 0,

@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import {
   mkdtemp,
+  chmod,
   mkdir,
   readFile,
   readdir,
@@ -95,6 +96,74 @@ it('separates all, staged, unstaged, selected commit to index/working, and non-i
   expect(snapshot.comparison.base).toEqual({ kind: 'commit', ref: head })
   expect((await service.content(snapshot.id, oddPath)).newFile?.contents).toBe('untracked\r\n')
 })
+
+it.each([
+  { contents: 'one\nreplacement\n', additions: 1, deletions: 1 },
+  { contents: '', additions: 0, deletions: 2 },
+  { contents: 'binary\0content', additions: null, deletions: null },
+])(
+  'preserves the baseline for a recreated staged deletion: $contents',
+  async ({ contents, additions, deletions }) => {
+    const { repository, git, write, service } = await fixture()
+    await git('rm', 'file.txt')
+    await write('file.txt', contents)
+    const snapshot = await service.open(repository, all)
+    expect(snapshot.files).toHaveLength(1)
+    expect(snapshot.files[0]).toMatchObject({ status: 'M', additions, deletions })
+    const content = await service.content(snapshot.id, 'file.txt')
+    if (additions === null) expect(content.summary).toContain('Binary')
+    else
+      expect(content).toMatchObject({
+        oldFile: { contents: 'one\ntwo\n' },
+        newFile: { contents },
+      })
+    const staged = await service.open(repository, { ...all, target: { kind: 'index' } })
+    expect(staged.files[0].status).toBe('D')
+    const unstaged = await service.open(repository, { ...all, base: { kind: 'index' } })
+    expect(unstaged.files[0]).toMatchObject({ status: '?', oldMode: '000000' })
+  },
+)
+
+it('omits a recreated staged deletion when its content matches the baseline', async () => {
+  const { repository, git, write, service } = await fixture()
+  await git('rm', 'file.txt')
+  await write('file.txt', 'one\ntwo\n')
+  const snapshot = await service.open(repository, all)
+  expect(snapshot.files).toEqual([])
+  expect(snapshot.paths).toContain('file.txt')
+  expect((await service.content(snapshot.id, 'file.txt')).newFile?.contents).toBe('one\ntwo\n')
+})
+
+it.skipIf(process.platform === 'win32')(
+  'preserves executable modes and symlink targets for recreated deletions',
+  async () => {
+    const { repository, git, write, service } = await fixture()
+    await chmod(join(repository, 'file.txt'), 0o755)
+    await git('add', '.')
+    await git('commit', '-m', 'executable')
+    await git('rm', 'file.txt')
+    await write('file.txt', 'one\ntwo\n')
+    await chmod(join(repository, 'file.txt'), 0o755)
+    expect((await service.open(repository, all)).files).toEqual([])
+    await chmod(join(repository, 'file.txt'), 0o644)
+    const modeChange = await service.open(repository, all)
+    expect(modeChange.files[0]).toMatchObject({
+      status: 'M',
+      oldMode: '100755',
+      newMode: '100644',
+      additions: 0,
+      deletions: 0,
+    })
+    await rm(join(repository, 'file.txt'))
+    await symlink('missing-target', join(repository, 'file.txt'))
+    const link = await service.open(repository, all)
+    expect(link.files[0]).toMatchObject({ status: 'T', oldMode: '100755', newMode: '120000' })
+    expect(await service.content(link.id, 'file.txt')).toMatchObject({
+      oldFile: { contents: 'one\ntwo\n' },
+      newFile: { contents: 'missing-target' },
+    })
+  },
+)
 
 it('supports direct and merge-base refs, remote refs, renames, deletions, mode changes and target-side all files', async () => {
   const { repository, git, write, service } = await fixture()

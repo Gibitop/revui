@@ -216,7 +216,7 @@ function ReviewSession({
       filter === 'all'
         ? (snapshot.data?.paths ?? [])
         : filter === 'unresolved'
-          ? (snapshot.data?.paths ?? []).filter((path) => unresolvedPaths.has(path))
+          ? [...unresolvedPaths]
           : (snapshot.data?.files.map((file) => file.path) ?? [])
     return paths.filter((path) => path.toLowerCase().includes(search.toLowerCase()))
   }, [snapshot.data, filterThreads, filter, search])
