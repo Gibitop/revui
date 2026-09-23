@@ -1,34 +1,117 @@
-import { useId, useRef, useState } from 'react'
+import { useId, useState } from 'react'
 import type { RevisionSuggestion } from '../../shared/review'
-import { GitBranch, GitCommitHorizontal, Tag, Globe, Files, FilePen, ChevronDown } from 'lucide-react'
+import {
+  GitBranch,
+  GitCommitHorizontal,
+  Tag,
+  Globe,
+  Files,
+  FilePen,
+  ChevronDown,
+} from 'lucide-react'
+import {
+  Combobox,
+  ComboboxInput,
+  ComboboxTrigger,
+  ComboboxContent,
+  ComboboxList,
+  ComboboxItem,
+  ComboboxEmpty,
+} from '@/components/ui/combobox'
+import { Label } from '@/components/ui/label'
 
-export function RevisionSelect({ label, value, onChange, suggestions }: { label: string; value: string; onChange: (value: string) => void; suggestions: RevisionSuggestion[] }) {
+export function RevisionSelect({
+  label,
+  value,
+  onChange,
+  suggestions,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  suggestions: RevisionSuggestion[]
+}) {
   const id = useId()
-  const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
-  const [active, setActive] = useState(0)
-  const input = useRef<HTMLInputElement>(null)
-  const matches = suggestions.filter((suggestion) => suggestion.value.toLowerCase().includes(filter.toLowerCase())).slice(0, 50)
-  return <div className="revision-select" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false) }}>
-    <label htmlFor={id}>{label}</label>
-    <RevisionIcon kind={suggestions.find((item) => item.value === value)?.kind ?? 'commit'} />
-    <input ref={input} id={id} role="combobox" aria-autocomplete="list" aria-expanded={open} aria-controls={`${id}-options`} aria-activedescendant={open && matches[active] ? `${id}-option-${active}` : undefined} autoComplete="off" required value={value}
-      onFocus={() => { setOpen(true); setFilter(''); setActive(0); input.current?.select() }}
-      onChange={(event) => { onChange(event.target.value); setFilter(event.target.value); setActive(0); setOpen(true) }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') { event.preventDefault(); setOpen(false) }
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); setOpen(true); setActive((value) => Math.max(0, Math.min(matches.length - 1, value + (event.key === 'ArrowDown' ? 1 : -1)))) }
-        if (event.key === 'Enter' && open && matches[active]) { event.preventDefault(); onChange(matches[active].value); setOpen(false) }
-      }} />
-    <button type="button" aria-label={`Suggest ${label.toLowerCase()} revisions`} onClick={() => { input.current?.focus(); setFilter(''); setOpen(!open) }}><ChevronDown size={14} /></button>
-    {open && <div id={`${id}-options`} role="listbox" aria-label={`${label} revisions`} className="revision-options">
-      {matches.map((suggestion, index) => <button key={suggestion.value} type="button" id={`${id}-option-${index}`} role="option" aria-label={suggestion.value} aria-description={suggestion.kind} tabIndex={-1} aria-selected={active === index} onPointerDown={(event) => event.preventDefault()} onMouseEnter={() => setActive(index)} onClick={() => { onChange(suggestion.value); setOpen(false); input.current?.focus() }}><RevisionIcon kind={suggestion.kind} />{suggestion.value}</button>)}
-      {!matches.length && <div className="secondary-text">Press Compare to use this ref</div>}
-    </div>}
-  </div>
+  const matches = suggestions
+    .filter((suggestion) => suggestion.value.toLowerCase().includes(filter.toLowerCase()))
+    .slice(0, 50)
+  return (
+    <Combobox
+      modal={false}
+      items={matches.map((item) => item.value)}
+      filter={null}
+      inputValue={value}
+      value={value}
+      autoHighlight
+      onInputValueChange={(next, details) => {
+        if (details.reason === 'input-change') {
+          onChange(next)
+          setFilter(next)
+        }
+      }}
+      onValueChange={(next) => {
+        if (next) onChange(next)
+      }}
+    >
+      <div className="flex w-[clamp(130px,16vw,210px)] items-center rounded-md border border-input bg-background">
+        <Label htmlFor={id} className="pl-2 text-muted-foreground">
+          {label}
+        </Label>
+        <RevisionIcon kind={suggestions.find((item) => item.value === value)?.kind ?? 'commit'} />
+        <ComboboxInput
+          id={id}
+          required
+          onFocus={(event) => {
+            setFilter('')
+            event.currentTarget.select()
+          }}
+        />
+        <ComboboxTrigger
+          aria-label={`Suggest ${label.toLowerCase()} revisions`}
+          className="p-1.5 text-muted-foreground"
+        >
+          <ChevronDown size={14} />
+        </ComboboxTrigger>
+      </div>
+      <ComboboxContent>
+        <ComboboxEmpty className="p-1.5 text-muted-foreground">
+          Press Compare to use this ref
+        </ComboboxEmpty>
+        <ComboboxList>
+          {matches.map((suggestion) => (
+            <ComboboxItem
+              key={suggestion.value}
+              value={suggestion.value}
+              aria-label={suggestion.value}
+              aria-description={suggestion.kind}
+            >
+              <RevisionIcon kind={suggestion.kind} />
+              {suggestion.value}
+            </ComboboxItem>
+          ))}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  )
 }
 
 function RevisionIcon({ kind }: { kind: RevisionSuggestion['kind'] }) {
-  const Icon = { branch: GitBranch, commit: GitCommitHorizontal, tag: Tag, remote: Globe, working: FilePen, index: Files }[kind]
-  return <span className="revision-icon" title={kind} data-revision-kind={kind}><Icon size={14} aria-label={kind} /></span>
+  const Icon = {
+    branch: GitBranch,
+    commit: GitCommitHorizontal,
+    tag: Tag,
+    remote: Globe,
+    working: FilePen,
+    index: Files,
+  }[kind]
+  return (
+    <span
+      className="ml-1 inline-flex shrink-0 text-muted-foreground"
+      title={kind}
+      data-revision-kind={kind}
+    >
+      <Icon size={14} aria-label={kind} />
+    </span>
+  )
 }

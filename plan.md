@@ -161,16 +161,16 @@ Base-side semantic navigation and other language servers are deferred.
 
 ## 4. Implementation milestones
 
-| Milestone | Deliverable and completion criteria |
-|---|---|
-| **0. Foundation** | Save `plan.md`; scaffold Electron/React/pnpm; establish IPC, settings, themes, and test tooling. Confirm startup and native terminal dependencies on macOS and Windows. |
-| **1. Local review** | Open/reopen repositories; implement all comparison modes, both layouts, tree filters, local threads, reviewed markers, and lazy diff loading. Usable offline without GitLab or AI installed. |
-| **2. Workspace tools** | Add worktree/in-place preparation, safe stash restoration, post-checkout scripts, IDE opening, and terminal sessions. Verify failure recovery before enabling GitLab-driven workspace preparation. |
-| **3. GitLab review** | Add token setup, `origin` discovery, MR selection/metadata, all discussion workflows, suggestions, immediate/draft publishing, refresh handling, and approval. A complete human MR review can happen in the app. |
-| **4. Codex review** | Add chat, approvals, cancellation/resume, structured findings, publishing selected findings, and grouped walkthroughs. Results remain tied to the reviewed snapshot. |
-| **5. OpenCode** | Add the ACP adapter and run the same chat/review acceptance scenarios. Surface capability differences explicitly. |
-| **6. TypeScript intelligence** | Add target-side hovers/definitions and contextual suggestion completion/diagnostics without source writes. |
-| **7. Team readiness** | Complete monorepo benchmarks, accessibility and keyboard checks, recovery testing, onboarding documentation, and macOS/Windows setup verification. |
+| Milestone                      | Deliverable and completion criteria                                                                                                                                                                              |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0. Foundation**              | Save `plan.md`; scaffold Electron/React/pnpm; establish IPC, settings, themes, and test tooling. Confirm startup and native terminal dependencies on macOS and Windows.                                          |
+| **1. Local review**            | Open/reopen repositories; implement all comparison modes, both layouts, tree filters, local threads, reviewed markers, and lazy diff loading. Usable offline without GitLab or AI installed.                     |
+| **2. Workspace tools**         | Add worktree/in-place preparation, safe stash restoration, post-checkout scripts, IDE opening, and terminal sessions. Verify failure recovery before enabling GitLab-driven workspace preparation.               |
+| **3. GitLab review**           | Add token setup, `origin` discovery, MR selection/metadata, all discussion workflows, suggestions, immediate/draft publishing, refresh handling, and approval. A complete human MR review can happen in the app. |
+| **4. Codex review**            | Add chat, approvals, cancellation/resume, structured findings, publishing selected findings, and grouped walkthroughs. Results remain tied to the reviewed snapshot.                                             |
+| **5. OpenCode**                | Add the ACP adapter and run the same chat/review acceptance scenarios. Surface capability differences explicitly.                                                                                                |
+| **6. TypeScript intelligence** | Add target-side hovers/definitions and contextual suggestion completion/diagnostics without source writes.                                                                                                       |
+| **7. Team readiness**          | Complete monorepo benchmarks, accessibility and keyboard checks, recovery testing, onboarding documentation, and macOS/Windows setup verification.                                                               |
 
 Each milestone ends with a usable application, relevant automated checks, and an updated `plan.md`. Performance work happens throughout rather than being postponed to milestone 7.
 

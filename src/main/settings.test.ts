@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { SettingsStore, preferencesPatchSchema } from './settings'
 
 const directories: string[] = []
-afterEach(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))) })
+afterEach(async () => {
+  await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+})
 
 describe('settings persistence', () => {
   it('serializes concurrent changes and preserves them after reopening', async () => {
@@ -21,7 +23,12 @@ describe('settings persistence', () => {
     ])
     const reopened = new SettingsStore(directory)
     await reopened.load()
-    expect(reopened.get()).toMatchObject({ theme: 'dark', diffLayout: 'unified', aiPanelOpen: true, recentRepositories: ['/work/project'] })
+    expect(reopened.get()).toMatchObject({
+      theme: 'dark',
+      diffLayout: 'unified',
+      aiPanelOpen: true,
+      recentRepositories: ['/work/project'],
+    })
     expect(await readdir(directory)).toEqual(['settings.json'])
     const snapshot = reopened.get()
     snapshot.recentRepositories.push('/injected')
@@ -60,7 +67,9 @@ describe('settings persistence', () => {
     await expect(store.updatePreferences({ theme: 'dark' })).rejects.toThrow()
     expect(store.get().theme).toBe('system')
     await rm(join(directory, 'settings.json'), { recursive: true })
-    await expect(store.updatePreferences({ theme: 'dark' })).resolves.toMatchObject({ theme: 'dark' })
+    await expect(store.updatePreferences({ theme: 'dark' })).resolves.toMatchObject({
+      theme: 'dark',
+    })
     expect(await readdir(directory)).toEqual(['settings.json'])
   })
 
@@ -78,7 +87,9 @@ describe('settings persistence', () => {
 
   it('rejects invalid values and renderer attempts to change protected settings', () => {
     expect(preferencesPatchSchema.safeParse({ theme: 'unknown' }).success).toBe(false)
-    expect(preferencesPatchSchema.safeParse({ recentRepositories: ['/private'] }).success).toBe(false)
+    expect(preferencesPatchSchema.safeParse({ recentRepositories: ['/private'] }).success).toBe(
+      false,
+    )
     expect(preferencesPatchSchema.safeParse({ version: 2 }).success).toBe(false)
     expect(preferencesPatchSchema.safeParse({ aiPanelOpen: 'yes' }).success).toBe(false)
   })

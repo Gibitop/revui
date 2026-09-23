@@ -45,7 +45,14 @@ export type LocalThread = {
 }
 export type ReviewRecord = { version: 1; threads: LocalThread[]; reviewed: Record<string, string> }
 export type ReviewAction =
-  | { kind: 'thread'; path: string; side: LocalThread['side']; start: number; end: number; body: string }
+  | {
+      kind: 'thread'
+      path: string
+      side: LocalThread['side']
+      start: number
+      end: number
+      body: string
+    }
   | { kind: 'delete-comment'; thread: string; message: string }
   | { kind: 'reply'; thread: string; body: string }
   | { kind: 'resolve'; thread: string; resolved: boolean }
@@ -54,4 +61,7 @@ export type ReviewAction =
 export type ContentMatch = { path: string; line: number; text: string }
 export type ContentSearch = { matches: ContentMatch[]; truncated: boolean }
 
-export type RevisionSuggestion = { value: string; kind: 'commit' | 'branch' | 'remote' | 'tag' | 'working' | 'index' }
+export type RevisionSuggestion = {
+  value: string
+  kind: 'commit' | 'branch' | 'remote' | 'tag' | 'working' | 'index'
+}

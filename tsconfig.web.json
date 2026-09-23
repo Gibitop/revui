@@ -10,7 +10,10 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "types": ["vite/client"],
-    "paths": { "@/*": ["./src/renderer/src/*"] }
+    "paths": {
+      "@/*": ["./src/renderer/src/*"]
+    },
+    "noUnusedLocals": true
   },
   "include": ["src/renderer/src/**/*", "src/shared/**/*.ts"]
 }

@@ -4,24 +4,28 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { PreferencesPatch, Settings } from '../shared/desktop'
 
-const preferencesSchema = z.object({
-  theme: z.enum(['system', 'light', 'dark']),
-  diffLayout: z.enum(['split', 'unified']),
-  reviewLayout: z.enum(['continuous', 'focused']),
-  wrapLines: z.boolean(),
-  sidebarCollapsed: z.boolean(),
-  sidebarWidth: z.number().int().min(190).max(600),
-  aiPanelOpen: z.boolean(),
-  terminalPanelOpen: z.boolean(),
-}).strict()
+const preferencesSchema = z
+  .object({
+    theme: z.enum(['system', 'light', 'dark']),
+    diffLayout: z.enum(['split', 'unified']),
+    reviewLayout: z.enum(['continuous', 'focused']),
+    wrapLines: z.boolean(),
+    sidebarCollapsed: z.boolean(),
+    sidebarWidth: z.number().int().min(190).max(600),
+    aiPanelOpen: z.boolean(),
+    terminalPanelOpen: z.boolean(),
+  })
+  .strict()
 export const preferencesPatchSchema = preferencesSchema.partial()
-const settingsSchema = preferencesSchema.extend({
-  wrapLines: z.boolean().default(false),
-  sidebarCollapsed: z.boolean().default(false),
-  sidebarWidth: z.number().int().min(190).max(600).default(270),
-  version: z.literal(1),
-  recentRepositories: z.array(z.string().min(1)).max(10),
-}).strict() satisfies z.ZodType<Settings>
+const settingsSchema = preferencesSchema
+  .extend({
+    wrapLines: z.boolean().default(false),
+    sidebarCollapsed: z.boolean().default(false),
+    sidebarWidth: z.number().int().min(190).max(600).default(270),
+    version: z.literal(1),
+    recentRepositories: z.array(z.string().min(1)).max(10),
+  })
+  .strict() satisfies z.ZodType<Settings>
 
 export class SettingsStore {
   private settings: Settings = {
@@ -60,7 +64,9 @@ export class SettingsStore {
       this.settings = settingsSchema.parse(parsed)
     } catch (error) {
       if (error instanceof Error && error.message === 'unsupported-version') {
-        throw new Error('This settings file was created by another version of RevUI. Update the app before opening it.')
+        throw new Error(
+          'This settings file was created by another version of RevUI. Update the app before opening it.',
+        )
       }
       const backup = `settings.invalid-${randomUUID()}.json`
       await rename(path, join(this.directory, backup))
@@ -80,7 +86,10 @@ export class SettingsStore {
   rememberRepository(path: string): Promise<Settings> {
     return this.update((settings) => ({
       ...settings,
-      recentRepositories: [path, ...settings.recentRepositories.filter((entry) => entry !== path)].slice(0, 10),
+      recentRepositories: [
+        path,
+        ...settings.recentRepositories.filter((entry) => entry !== path),
+      ].slice(0, 10),
     }))
   }
 
@@ -89,7 +98,10 @@ export class SettingsStore {
       const next = settingsSchema.parse(change(this.settings))
       const temporary = join(this.directory, `settings.${randomUUID()}.tmp`)
       try {
-        await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
+        await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, {
+          mode: 0o600,
+          flag: 'wx',
+        })
         await rename(temporary, join(this.directory, 'settings.json'))
       } finally {
         await rm(temporary, { force: true })

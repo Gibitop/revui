@@ -46,7 +46,7 @@ Review records live in versioned JSON under `userData/reviews/<repository hash>/
 ## Checks
 
 ```sh
-pnpm run check          # TypeScript + Vitest
+pnpm run check          # TypeScript + Hooks lint + formatting + Vitest
 pnpm run test:native    # Spawn a shell through node-pty inside Electron
 pnpm run test:e2e       # Build + Playwright desktop review tests
 pnpm run test:benchmark # Opt-in 100,000-file / 1,000-change desktop measurement
@@ -61,7 +61,7 @@ The GitHub Actions workflow runs the same checks on macOS and Windows. Windows e
 - `src/main`: privileged desktop services, repository inspection, Git comparisons, local review persistence, settings, and IPC handlers.
 - `src/preload`: the narrow bridge exposed as `window.desktop`.
 - `src/shared`: IPC names and desktop types; no privileged code or runtime dependencies.
-- `src/renderer/src`: React workspace, shadcn-style UI primitives, themes, Query state, and Zustand UI state.
+- `src/renderer/src`: React workspace, shadcn-style UI primitives, themes, Query caches, and local React UI state.
 - `scripts`: desktop setup and native-module verification.
 - `tests`: Electron end-to-end tests.
 
@@ -76,3 +76,11 @@ Third-party licenses for installed packages are included under their respective 
 Electron E2E tests use hidden windows (`REVUI_TEST_HIDDEN=1`) with background throttling disabled. Electron still requires a graphical session; on Linux CI, run under Xvfb. The packaged app ignores this test flag.
 
 Development watches main and preload modules as well as the renderer. Restart any existing dev process once after updating the dev command to pick up `--watch`.
+
+## UI conventions
+
+Use the local shadcn-style controls in `components/ui` and Tailwind utilities for application UI. Radix supplies dialogs, tooltips, and selection controls; the shadcn combobox uses Base UI to support editable Git refs. Keep CSS for tokens, base rules, Markdown, Electron drag regions, and Pierre shadow DOM integration. Keep the established Geist typography and compact monochrome layout.
+
+Comparison opening is an explicit renderer operation. Its request ID owns cancellation through IPC; Query caches file content and review records only for the active snapshot. Components are grouped by responsibility, with related types and behavior colocated.
+
+Run `pnpm run format` before committing. Hooks lint uses Babel's TypeScript parser because typescript-eslint does not support the repository's TypeScript 7 compiler.

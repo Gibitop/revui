@@ -1,4 +1,12 @@
-import type { RevisionSuggestion, Comparison, ContentSearch, FileContent, ReviewAction, ReviewRecord, Snapshot } from './review'
+import type {
+  RevisionSuggestion,
+  Comparison,
+  ContentSearch,
+  FileContent,
+  ReviewAction,
+  ReviewRecord,
+  Snapshot,
+} from './review'
 export type Settings = {
   version: 1
   theme: 'system' | 'light' | 'dark'
@@ -25,9 +33,13 @@ export type DesktopAPI = {
   copyRelativePath: (path: string) => Promise<void>
   getRepositoryRefs: (repository: string) => Promise<RevisionSuggestion[]>
   searchReviewContents: (snapshot: string, query: string) => Promise<ContentSearch>
-  openComparison: (repository: string, comparison: Comparison) => Promise<Snapshot>
+  openComparison: (
+    repository: string,
+    comparison: Comparison,
+    requestId: string,
+  ) => Promise<Snapshot>
   recentComparison: (repository: string) => Promise<Comparison | null>
-  cancelComparison: () => Promise<void>
+  cancelComparison: (requestId: string) => Promise<void>
   loadReviewFile: (snapshot: string, path: string, force?: boolean) => Promise<FileContent>
   getReviewRecord: (snapshot: string) => Promise<ReviewRecord>
   updateReviewRecord: (snapshot: string, action: ReviewAction) => Promise<ReviewRecord>

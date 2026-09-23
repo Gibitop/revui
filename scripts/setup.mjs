@@ -6,7 +6,9 @@ import { dirname, join } from 'node:path'
 const require = createRequire(import.meta.url)
 execFileSync(process.execPath, [require.resolve('electron/install.js')], { stdio: 'inherit' })
 const ptyDirectory = dirname(require.resolve('node-pty/package.json'))
-execFileSync(process.execPath, [join(ptyDirectory, 'scripts/post-install.js')], { stdio: 'inherit' })
+execFileSync(process.execPath, [join(ptyDirectory, 'scripts/post-install.js')], {
+  stdio: 'inherit',
+})
 
 // node-pty ships Node-API prebuilds for macOS/Windows. Some package-manager
 // extractions lose the executable bit on the macOS helper.
