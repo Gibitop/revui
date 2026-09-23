@@ -18,14 +18,14 @@ export function ComparisonControls({
   initial: Comparison
   onCompare: (comparison: Comparison) => void
 }) {
-  const [from, setFrom] = useState(
+  const [newRevision, setNewRevision] = useState(
     initial.target.kind === 'working'
       ? 'Uncommitted'
       : initial.target.kind === 'index'
         ? 'Index'
         : initial.target.ref,
   )
-  const [to, setTo] = useState(
+  const [oldRevision, setOldRevision] = useState(
     initial.base.kind === 'index'
       ? 'Index'
       : initial.base.kind === 'commit'
@@ -38,10 +38,10 @@ export function ComparisonControls({
     queryFn: () => window.desktop.getRepositoryRefs(repository.path),
   })
   const canSwap =
-    !!from.trim() &&
-    !!to.trim() &&
-    !['Uncommitted', 'Index'].includes(from) &&
-    !['Uncommitted', 'Index'].includes(to)
+    !!newRevision.trim() &&
+    !!oldRevision.trim() &&
+    !['Uncommitted', 'Index'].includes(newRevision) &&
+    !['Uncommitted', 'Index'].includes(oldRevision)
   return (
     <form
       data-testid="comparison-controls"
@@ -49,13 +49,13 @@ export function ComparisonControls({
       onSubmit={(event) => {
         event.preventDefault()
         const target: Comparison['target'] =
-          from === 'Uncommitted'
+          newRevision === 'Uncommitted'
             ? { kind: 'working' }
-            : from === 'Index'
+            : newRevision === 'Index'
               ? { kind: 'index' }
-              : { kind: 'commit', ref: from.trim() }
+              : { kind: 'commit', ref: newRevision.trim() }
         const base: Comparison['base'] =
-          to === 'Index' ? { kind: 'index' } : { kind: 'commit', ref: to.trim() }
+          oldRevision === 'Index' ? { kind: 'index' } : { kind: 'commit', ref: oldRevision.trim() }
         onCompare({
           base,
           target,
@@ -65,26 +65,25 @@ export function ComparisonControls({
       }}
     >
       <RevisionSelect
-        label="From"
-        value={from}
-        onChange={setFrom}
+        label="Old"
+        value={oldRevision}
+        onChange={setOldRevision}
         suggestions={[
-          { value: 'Uncommitted', kind: 'working' },
-          { value: 'Index', kind: 'index' },
+          ...(newRevision === 'Uncommitted' ? [{ value: 'Index', kind: 'index' as const }] : []),
           ...(refs.data ?? [{ value: 'HEAD', kind: 'commit' as const }]),
         ]}
       />
-      <Tooltip label={canSwap ? 'Swap From and To' : 'Swapping requires two Git revisions'}>
+      <Tooltip label={canSwap ? 'Swap Old and New' : 'Swapping requires two Git revisions'}>
         <span className="inline-flex shrink-0">
           <Button
             type="button"
             variant="ghost"
             size="icon"
-            aria-label="Swap From and To"
+            aria-label="Swap Old and New"
             disabled={!canSwap}
             onClick={() => {
-              setFrom(to)
-              setTo(from)
+              setNewRevision(oldRevision)
+              setOldRevision(newRevision)
             }}
           >
             <ArrowLeftRight />
@@ -92,22 +91,23 @@ export function ComparisonControls({
         </span>
       </Tooltip>
       <RevisionSelect
-        label="To"
-        value={to}
-        onChange={setTo}
+        label="New"
+        value={newRevision}
+        onChange={setNewRevision}
         suggestions={[
-          ...(from === 'Uncommitted' ? [{ value: 'Index', kind: 'index' as const }] : []),
+          { value: 'Uncommitted', kind: 'working' },
+          { value: 'Index', kind: 'index' },
           ...(refs.data ?? [{ value: 'HEAD', kind: 'commit' as const }]),
         ]}
       />
-      {from !== 'Uncommitted' && from !== 'Index' && to !== 'Index' && (
+      {newRevision !== 'Uncommitted' && newRevision !== 'Index' && oldRevision !== 'Index' && (
         <Label className="flex shrink-0 items-center gap-1 whitespace-nowrap">
           <Checkbox
             checked={mode === 'merge-base'}
             onCheckedChange={(checked) => setMode(checked === true ? 'merge-base' : 'direct')}
           />
           Merge-base
-          <Tooltip label="Compare the From revision with the common ancestor of From and To. This shows changes introduced on From since the branches diverged.">
+          <Tooltip label="Compare the New revision with the common ancestor of Old and New. This shows changes introduced on New since the branches diverged.">
             <Button
               variant="ghost"
               type="button"

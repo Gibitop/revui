@@ -150,8 +150,8 @@ textarea {
 :root {
   --git-added: light-dark(#16806a, #00cab1);
   --git-deleted: light-dark(#cf2637, #ff6762);
-  --git-modified: light-dark(#087f9f, #08c0ef);
-  --git-renamed: light-dark(#967400, #ffd452);
+  --git-modified: light-dark(#967400, #ffd452);
+  --git-renamed: light-dark(#087f9f, #08c0ef);
 }
 .file-tree {
   --trees-status-added-override: var(--git-added);

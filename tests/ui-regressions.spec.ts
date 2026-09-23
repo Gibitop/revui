@@ -96,7 +96,7 @@ test('tree errors recover; shadcn controls and background reads preserve the rev
     await page.getByRole('button', { name: 'Retry file tree' }).click()
     await expect(page.getByRole('treeitem', { name: /first.ts/ })).toBeVisible()
 
-    const from = page.getByRole('combobox', { name: 'From', exact: true })
+    const from = page.getByRole('combobox', { name: 'New', exact: true })
     await from.fill('HEAD~0')
     await from.press('Escape')
     await expect(from).toHaveValue('HEAD~0')

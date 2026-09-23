@@ -10,7 +10,7 @@ import {
   type SelectedLineRange,
   type DiffLineAnnotation,
 } from '@pierre/diffs'
-import { ChevronDown, ChevronRight, Copy, Check } from 'lucide-react'
+import { ArrowRight, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react'
 import type {
   ContentMatch,
   LocalThread,
@@ -64,6 +64,7 @@ export function ReviewFileCard({
   const [visible, setVisible] = useState(false)
   const [force, setForce] = useState(false)
   const [range, setRange] = useState<SelectedLineRange | null>(null)
+  const [selectingRange, setSelectingRange] = useState<SelectedLineRange | null>(null)
   const [body, setBody] = useState('')
   const [pendingReviewed, setPendingReviewed] = useState<boolean | null>(null)
   const queryClient = useQueryClient()
@@ -167,9 +168,16 @@ export function ReviewFileCard({
     diffStyle: settings.diffLayout,
     disableFileHeader: true,
     enableLineSelection: true,
+    enableGutterUtility: true,
+    onGutterUtilityClick: setRange,
     preferredHighlighter: 'shiki-js' as const,
     overflow: settings.wrapLines ? ('wrap' as const) : ('scroll' as const),
-    onLineSelectionEnd: setRange,
+    onLineSelectionStart: setSelectingRange,
+    onLineSelectionChange: setSelectingRange,
+    onLineSelectionEnd: (selection: SelectedLineRange | null) => {
+      setSelectingRange(null)
+      setRange(selection)
+    },
     unsafeCSS: codeCSS,
     expandUnchanged: !!anchor,
     onPostRender: (node: HTMLElement, instance: object) => {
@@ -189,7 +197,8 @@ export function ReviewFileCard({
             node.getBoundingClientRect().top -
             scroll.getBoundingClientRect().top +
             position.top -
-            40
+            (root.current?.querySelector('header')?.getBoundingClientRect().height ?? 40) -
+            8
       })
     },
   }
@@ -242,7 +251,9 @@ export function ReviewFileCard({
       />
     )
   const selectedLines =
-    range ?? (anchor ? { start: anchor.line, end: anchor.line, side: anchor.side } : null)
+    selectingRange ??
+    range ??
+    (anchor ? { start: anchor.line, end: anchor.line, side: anchor.side } : null)
   return (
     <article
       ref={root}
@@ -252,7 +263,7 @@ export function ReviewFileCard({
     >
       <header
         data-testid="file-heading"
-        className="group flex items-center gap-2.5 border-b bg-surface px-3 py-2"
+        className="group sticky top-0 z-10 flex items-center gap-2.5 border-b bg-surface px-3 py-2"
         data-git-status={metadata ? gitStatuses[metadata.status] : undefined}
       >
         <Button
@@ -264,20 +275,30 @@ export function ReviewFileCard({
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
         </Button>
-        <span
-          className="w-4 shrink-0 text-muted-foreground group-data-[git-status=added]:text-git-added group-data-[git-status=untracked]:text-git-added group-data-[git-status=deleted]:text-git-deleted group-data-[git-status=modified]:text-git-modified group-data-[git-status=renamed]:text-git-renamed"
-          title={
-            metadata?.status === 'U'
-              ? 'Conflicted'
-              : metadata
-                ? gitStatuses[metadata.status]
-                : 'Unchanged'
-          }
-        >
-          {metadata?.status ?? '='}
+        <span className="shrink-0 text-muted-foreground group-data-[git-status=added]:text-git-added group-data-[git-status=untracked]:text-git-added group-data-[git-status=deleted]:text-git-deleted group-data-[git-status=modified]:text-git-modified group-data-[git-status=renamed]:text-git-renamed">
+          {metadata
+            ? ({
+                A: 'Added',
+                D: 'Deleted',
+                M: 'Modified',
+                T: 'Type changed',
+                U: 'Conflicted',
+                R: 'Renamed',
+                C: 'Copied',
+                '?': 'Untracked',
+              }[metadata.status] ?? 'Changed')
+            : 'Unchanged'}
         </span>
         <h2 className="wrap-anywhere font-mono group-data-[git-status=added]:text-git-added group-data-[git-status=untracked]:text-git-added group-data-[git-status=deleted]:text-git-deleted group-data-[git-status=modified]:text-git-modified group-data-[git-status=renamed]:text-git-renamed">
-          {metadata && metadata.oldPath !== path ? `${metadata.oldPath} → ${path}` : path}
+          {metadata && metadata.oldPath !== path ? (
+            <>
+              {metadata.oldPath}{' '}
+              <ArrowRight className="inline size-4 align-middle" aria-hidden="true" />
+              <span className="sr-only"> to </span> {path}
+            </>
+          ) : (
+            path
+          )}
         </h2>
         <Button
           variant="ghost"
@@ -301,9 +322,21 @@ export function ReviewFileCard({
         <span role="status" className="sr-only">
           {copied ? `Copied ${path}` : ''}
         </span>
+        {metadata && metadata.additions !== null && metadata.deletions !== null && (
+          <span className="flex shrink-0 gap-2 font-mono text-xs tabular-nums">
+            <span className="text-git-added" aria-label={`${metadata.additions} lines added`}>
+              +{metadata.additions}
+            </span>
+            <span className="text-git-deleted" aria-label={`${metadata.deletions} lines deleted`}>
+              −{metadata.deletions}
+            </span>
+          </span>
+        )}
         {metadata && metadata.oldMode !== metadata.newMode && (
           <span className="text-muted-foreground font-mono">
-            {metadata.oldMode} → {metadata.newMode}
+            {metadata.oldMode}{' '}
+            <ArrowRight className="inline size-4 align-middle" aria-hidden="true" />
+            <span className="sr-only"> to </span> {metadata.newMode}
           </span>
         )}
 

@@ -88,11 +88,17 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     await expect(stamp).toContainText(/just now|ago/)
     await stamp.hover()
     await expect(page.getByRole('tooltip')).toContainText(String(new Date().getFullYear()))
-    for (let i = 0; i < 2; i++) {
+    for (const shortcut of [
+      'Control+ArrowRight',
+      'Meta+ArrowRight',
+      'Control+ArrowLeft',
+      'Meta+ArrowLeft',
+    ]) {
       await page.locator('[data-testid="diff-scroll"] > div').evaluate((node) => {
         node.scrollTop = 0
       })
-      await page.getByRole('button', { name: 'Thread →', exact: true }).click()
+      await page.getByRole('button', { name: 'Next thread', exact: true }).focus()
+      await page.keyboard.press(shortcut)
       await expect
         .poll(() =>
           page.locator('[data-testid="diff-scroll"] > div').evaluate((node) => node.scrollTop),
@@ -103,9 +109,9 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     }
     await file.getByRole('button', { name: 'Delete comment' }).click()
     await expect(file.locator('[data-testid="local-thread"]')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Thread →', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Next thread', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'All changes', exact: true })).toHaveCount(0)
-    await expect(page.getByText('1 files · 0 unresolved')).toBeVisible()
+    await expect(page.getByTestId('line-totals')).toHaveText('+1−1· 1 files')
     await page.getByRole('treeitem', { name: /long.ts/ }).click()
     await page.mouse.move(800, 400)
     await page.mouse.wheel(0, 30000)
@@ -180,7 +186,34 @@ test('file-tree navigation stays aligned as distant diffs load and yields to man
     await page.getByRole('button', { name: 'Add repository', exact: true }).click()
     const last = page.getByRole('article', { name: paths.at(-1)!, exact: true })
     await expect(last).toContainText('Scroll to load file')
+    const selectedItems = page.getByRole('treeitem', { selected: true })
+    await expect(selectedItems).toHaveCount(1)
+    for (const [button, path] of [
+      ['Next file', 'file-01.ts'],
+      ['Next file', 'file-02.ts'],
+      ['Previous file', 'file-01.ts'],
+      ['Previous file', 'file-00.ts'],
+    ]) {
+      await page.getByRole('button', { name: button, exact: true }).click()
+      await expect(selectedItems).toHaveCount(1)
+      await expect(selectedItems).toHaveAccessibleName(path)
+    }
+    for (const [shortcut, path] of [
+      ['ArrowRight', 'file-01.ts'],
+      ['ArrowRight', 'file-02.ts'],
+      ['ArrowLeft', 'file-01.ts'],
+      ['ArrowLeft', 'file-00.ts'],
+    ]) {
+      await page.keyboard.press(shortcut)
+      await expect(selectedItems).toHaveCount(1)
+      await expect(selectedItems).toHaveAccessibleName(path)
+    }
+    await page.getByLabel('Search files', { exact: true }).focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(selectedItems).toHaveAccessibleName('file-00.ts')
     await page.getByRole('treeitem', { name: /file-15.ts/ }).click()
+    await expect(selectedItems).toHaveCount(1)
+    await expect(selectedItems).toHaveAccessibleName('file-15.ts')
     await expect(last.locator('[data-line]').first()).toBeVisible()
     await expect
       .poll(() =>
@@ -246,6 +279,82 @@ test('file-tree navigation stays aligned as distant diffs load and yields to man
         }),
       )
       .toBeLessThan(2)
+  } finally {
+    await application.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('diffs and file navigation follow the tree folders-first natural order', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'revui-file-order-'))
+  const repository = join(root, 'repo')
+  await mkdir(join(repository, 'z-folder'), { recursive: true })
+  await promisify(execFile)('git', ['-C', repository, 'init', '-b', 'main'])
+  await promisify(execFile)('git', [
+    '-C',
+    repository,
+    '-c',
+    'user.name=Test',
+    '-c',
+    'user.email=test@example.com',
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '--allow-empty',
+    '-m',
+    'initial',
+  ])
+  const expected = ['z-folder/file2.ts', 'z-folder/file10.ts', 'a-root.ts', 'file2.ts', 'file10.ts']
+  await Promise.all(
+    expected.map((path) => writeFile(join(repository, path), 'export const value = 1;\n')),
+  )
+  const env: Record<string, string> = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    ),
+    REVUI_USER_DATA: join(root, 'data'),
+    REVUI_TEST_HIDDEN: '1',
+  }
+  delete env.ELECTRON_RUN_AS_NODE
+  delete env.ELECTRON_RENDERER_URL
+  const application = await electron.launch({ args: ['.'], env })
+  try {
+    const page = await application.firstWindow()
+    await application.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
+    }, repository)
+    await page.getByRole('button', { name: 'Open repository', exact: true }).click()
+    await page.getByRole('button', { name: 'Add repository', exact: true }).click()
+    const treeFiles = page.locator('[role="treeitem"][data-item-type="file"]')
+    await expect(treeFiles).toHaveCount(expected.length)
+    expect(
+      await treeFiles.evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute('data-item-path')),
+      ),
+    ).toEqual(expected)
+    expect(
+      await page
+        .getByRole('article')
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('aria-label'))),
+    ).toEqual(expected)
+    for (const path of expected) {
+      await expect(page.getByRole('treeitem', { selected: true })).toHaveAttribute(
+        'data-item-path',
+        path,
+      )
+      await page.getByRole('button', { name: 'Next file', exact: true }).click()
+    }
+    await expect(page.getByRole('treeitem', { selected: true })).toHaveAttribute(
+      'data-item-path',
+      expected[0],
+    )
+    await page.getByRole('button', { name: 'Previous file', exact: true }).click()
+    await expect(page.getByRole('treeitem', { selected: true })).toHaveAttribute(
+      'data-item-path',
+      expected.at(-1)!,
+    )
   } finally {
     await application.close()
     await rm(root, { recursive: true, force: true })

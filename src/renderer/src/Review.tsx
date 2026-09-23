@@ -2,7 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } fro
 import { createPortal } from 'react-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Virtualizer } from '@pierre/diffs/react'
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { ArrowLeft, ArrowRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { Comparison, ContentMatch, LocalThread, Snapshot } from '../../shared/review'
 import type { PreferencesPatch, Repository, Settings } from '../../shared/desktop'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import { ComparisonControls } from './ComparisonControls'
 import { ReviewSidebar } from './ReviewSidebar'
 import { ReviewFileCard } from './ReviewFileCard'
 import { ContentSearch } from './ContentSearch'
+import ReviewWorker from './review.worker?worker'
 
 const defaultComparison: Comparison = {
   base: { kind: 'commit', ref: 'HEAD' },
@@ -79,7 +80,7 @@ function ReviewSession({
   const contentSearchRef = useRef<HTMLInputElement>(null)
 
   const queryClient = useQueryClient()
-  const request = useRef<{ id: string; snapshotId?: string } | null>(null)
+  const request = useRef<{ id: string; snapshotId?: string; worker?: Worker } | null>(null)
   const [snapshot, setSnapshot] = useState<{ data?: Snapshot; error?: Error; isPending: boolean }>({
     isPending: true,
   })
@@ -87,19 +88,42 @@ function ReviewSession({
     (comparison: Comparison) => {
       const previous = request.current
       if (previous) {
+        previous.worker?.terminate()
         void window.desktop.cancelComparison(previous.id)
         for (const key of ['review-record', 'review-file', 'content-search'])
           queryClient.removeQueries({ queryKey: [key, previous.snapshotId] })
       }
-      const current = { id: crypto.randomUUID(), snapshotId: undefined as string | undefined }
+      const current = {
+        id: crypto.randomUUID(),
+        snapshotId: undefined as string | undefined,
+        worker: undefined as Worker | undefined,
+      }
       request.current = current
       setSnapshot({ isPending: true })
       void window.desktop
         .openComparison(repository.path, comparison, current.id)
-        .then((data) => {
+        .then(async (data) => {
           if (request.current !== current) return
           current.snapshotId = data.id
-          setSnapshot({ data, isPending: false })
+          const worker = new ReviewWorker()
+          current.worker = worker
+          try {
+            const ordered = await new Promise<Snapshot>((resolve, reject) => {
+              worker.onmessage = (event) => {
+                if (event.data.error) reject(new Error(event.data.error))
+                else resolve(event.data.result)
+              }
+              worker.onerror = (event) => {
+                event.preventDefault()
+                reject(new Error(event.message))
+              }
+              worker.postMessage({ kind: 'snapshot', snapshot: data })
+            })
+            if (request.current === current) setSnapshot({ data: ordered, isPending: false })
+          } finally {
+            worker.terminate()
+            current.worker = undefined
+          }
         })
         .catch((error: unknown) => {
           if (request.current === current)
@@ -117,6 +141,7 @@ function ReviewSession({
       const current = request.current
       request.current = null
       if (!current) return
+      current.worker?.terminate()
       void window.desktop.cancelComparison(current.id)
       for (const key of ['review-record', 'review-file', 'content-search'])
         queryClient.removeQueries({ queryKey: [key, current.snapshotId] })
@@ -173,15 +198,14 @@ function ReviewSession({
   const unresolved = records.data?.threads.filter((thread) => !thread.resolved) ?? []
   const filterThreads = filter === 'unresolved' ? records.data?.threads : undefined
   const paths = useMemo(() => {
+    const unresolvedPaths = new Set(
+      filterThreads?.filter((thread) => !thread.resolved).map((thread) => thread.path),
+    )
     const paths =
       filter === 'all'
         ? (snapshot.data?.paths ?? [])
         : filter === 'unresolved'
-          ? [
-              ...new Set(
-                filterThreads?.filter((thread) => !thread.resolved).map((thread) => thread.path),
-              ),
-            ]
+          ? (snapshot.data?.paths ?? []).filter((path) => unresolvedPaths.has(path))
           : (snapshot.data?.files.map((file) => file.path) ?? [])
     return paths.filter((path) => path.toLowerCase().includes(search.toLowerCase()))
   }, [snapshot.data, filterThreads, filter, search])
@@ -222,7 +246,8 @@ function ReviewSession({
     }
   }
   const onReviewKey = useEffectEvent((event: KeyboardEvent) => {
-    if (document.querySelector('[role="dialog"][data-state="open"]')) return
+    if (event.defaultPrevented || document.querySelector('[role="dialog"][data-state="open"]'))
+      return
     if (
       event.target instanceof HTMLElement &&
       event.target.closest('textarea, [contenteditable="true"], [data-review-editor]')
@@ -238,6 +263,19 @@ function ReviewSession({
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'f') {
       event.preventDefault()
       contentSearchRef.current?.focus()
+    }
+    if (
+      event.target instanceof HTMLElement &&
+      event.target.closest('input, select, [role="combobox"]')
+    )
+      return
+    if (
+      !event.altKey &&
+      !event.shiftKey &&
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+    ) {
+      event.preventDefault()
+      navigate(event.key === 'ArrowRight' ? 1 : -1, event.metaKey || event.ctrlKey)
     }
     if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
@@ -329,7 +367,6 @@ function ReviewSession({
           setSearch={setSearch}
           searchRef={searchRef}
           paths={paths}
-          unresolvedCount={unresolved.length}
           totals={totals}
           selected={selected}
           select={select}
@@ -350,27 +387,31 @@ function ReviewSession({
             </Button>
             <Button
               variant="ghost"
+              aria-label="Previous file"
               disabled={!changed.length}
-              title="Previous change (Alt+↑)"
               onClick={() => navigate(-1)}
             >
-              ← Change
+              <ArrowLeft aria-hidden="true" /> File
             </Button>
             <Button
               variant="ghost"
+              aria-label="Next file"
               disabled={!changed.length}
-              title="Next change (Alt+↓)"
               onClick={() => navigate(1)}
             >
-              Change →
+              File <ArrowRight aria-hidden="true" />
             </Button>
             {!!unresolved.length && (
               <>
-                <Button variant="ghost" onClick={() => navigate(-1, true)}>
-                  ← Thread
+                <Button
+                  variant="ghost"
+                  aria-label="Previous thread"
+                  onClick={() => navigate(-1, true)}
+                >
+                  <ArrowLeft aria-hidden="true" /> Thread
                 </Button>
-                <Button variant="ghost" onClick={() => navigate(1, true)}>
-                  Thread →
+                <Button variant="ghost" aria-label="Next thread" onClick={() => navigate(1, true)}>
+                  Thread <ArrowRight aria-hidden="true" />
                 </Button>
               </>
             )}

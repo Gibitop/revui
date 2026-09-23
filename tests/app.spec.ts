@@ -68,8 +68,8 @@ test('desktop startup, repository picker, IPC isolation, preferences, and restar
       path: testInfo.outputPath('repository-dark.png'),
       animations: 'disabled',
     })
-    await page.getByRole('combobox', { name: 'From', exact: true }).fill('main')
-    await page.getByRole('combobox', { name: 'From', exact: true }).press('Escape')
+    await page.getByRole('combobox', { name: 'New', exact: true }).fill('main')
+    await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
     await page.getByRole('button', { name: 'About merge-base' }).hover()
     await expect(page.getByRole('tooltip')).toContainText('common ancestor')
     expect(
@@ -212,12 +212,23 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
       'data-item-git-status',
       'modified',
     )
-    await page.getByRole('combobox', { name: 'From', exact: true }).click()
+    await page.getByRole('combobox', { name: 'New', exact: true }).click()
     await expect(page.getByRole('option', { name: 'main', exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
     // Each side gets its own inline composer, immediately after its selected line.
     for (const side of ['deletions', 'additions']) {
-      await file.locator(`[data-${side}] [data-column-number="1"]`).click()
+      const line = file.locator(`[data-${side}] [data-column-number="1"]`)
+      await line.hover()
+      const plus = file.locator('[data-utility-button]')
+      await expect(plus).toBeVisible()
+      await plus.click()
+      await expect(file.locator('[data-testid="thread-composer"]')).toBeVisible()
+      await file.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await line.hover()
+      await page.mouse.down()
+      await expect(line).toHaveAttribute('data-selected-line')
+      await expect(file.locator('[data-testid="thread-composer"]')).toHaveCount(0)
+      await page.mouse.up()
       const composer = file.locator('[data-testid="thread-composer"]')
       await expect(composer).toBeVisible()
       const bounds = (await composer.boundingBox())!
@@ -249,8 +260,21 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
       page.getByRole('article', { name: 'unchanged.ts' }).locator('[data-line="301"]'),
     ).toBeVisible()
     await expect(page.locator('[data-testid="thread-composer"]')).toHaveCount(0)
+    const unchanged = page.getByRole('article', { name: 'unchanged.ts' })
+    const startLine = unchanged.locator('[data-column-number="299"]')
+    const endLine = unchanged.locator('[data-column-number="301"]')
+    await startLine.hover()
+    await page.mouse.down()
+    await endLine.hover()
+    for (const line of [299, 300, 301]) {
+      await expect(unchanged.locator(`[data-line="${line}"]`)).toHaveAttribute('data-selected-line')
+    }
+    await expect(unchanged.locator('[data-testid="thread-composer"]')).toHaveCount(0)
+    await page.mouse.up()
+    await expect(unchanged.locator('[data-testid="thread-composer"]')).toBeVisible()
+    await unchanged.getByRole('button', { name: 'Cancel', exact: true }).click()
     await page.getByRole('button', { name: 'Clear content search' }).click()
-    await page.getByRole('button', { name: 'Change →', exact: true }).click()
+    await page.getByRole('button', { name: 'Next file', exact: true }).click()
     await expect(page.getByRole('tablist', { name: 'Diff layout' })).toHaveCount(0)
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await page.getByRole('radio', { name: 'Unified', exact: true }).click()
@@ -285,9 +309,18 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await file.getByRole('button', { name: 'Resolve', exact: true }).click()
     await expect(file.getByRole('button', { name: 'Reopen', exact: true })).toBeVisible()
     await file.getByRole('button', { name: 'Reopen', exact: true }).click()
-    await page.getByRole('radio', { name: 'Unresolved threads', exact: true }).click()
+    await page.getByRole('button', { name: 'Filter files', exact: true }).click()
+    await expect(
+      page.getByRole('menuitemradio', { name: 'Changed files', exact: true }),
+    ).toBeChecked()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('menu', { name: 'File filter' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Filter files', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Unresolved threads', exact: true }).click()
+    await expect(page.getByRole('menu', { name: 'File filter' })).toHaveCount(0)
     await expect(page.getByRole('treeitem', { name: /example.ts/ })).toBeVisible()
-    await page.getByRole('radio', { name: 'All files', exact: true }).click()
+    await page.getByRole('button', { name: 'Filter files', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'All files', exact: true }).click()
     await page.getByLabel('Search files').fill('unchanged')
     await page.getByRole('treeitem', { name: /unchanged.ts/ }).click()
     await expect(
@@ -301,21 +334,22 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
       path: testInfo.outputPath('local-review-light.png'),
       animations: 'disabled',
     })
-    await page.getByRole('radio', { name: 'Changed files', exact: true }).click()
-    await page.getByRole('combobox', { name: 'From', exact: true }).fill('Index')
-    await page.getByRole('combobox', { name: 'From', exact: true }).press('Escape')
+    await page.getByRole('button', { name: 'Filter files', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Changed files', exact: true }).click()
+    await page.getByRole('combobox', { name: 'New', exact: true }).fill('Index')
+    await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
     await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await expect(file.locator('[data-line]')).not.toHaveCount(0)
     await expect(file.getByText('Please explain this value.')).toHaveCount(0)
-    await expect(page.getByText('1 files · 0 unresolved')).toBeVisible()
-    await page.getByRole('combobox', { name: 'From', exact: true }).fill('Uncommitted')
-    await page.getByRole('combobox', { name: 'From', exact: true }).press('Escape')
-    await page.getByRole('combobox', { name: 'To', exact: true }).fill('Index')
-    await page.getByRole('combobox', { name: 'To', exact: true }).press('Escape')
+    await expect(page.getByTestId('line-totals')).toContainText('· 1 files')
+    await page.getByRole('combobox', { name: 'New', exact: true }).fill('Uncommitted')
+    await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
+    await page.getByRole('combobox', { name: 'Old', exact: true }).fill('Index')
+    await page.getByRole('combobox', { name: 'Old', exact: true }).press('Escape')
     await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await expect(file.locator('[data-line]')).not.toHaveCount(0)
-    await page.getByRole('combobox', { name: 'To', exact: true }).fill('HEAD')
-    await page.getByRole('combobox', { name: 'To', exact: true }).press('Escape')
+    await page.getByRole('combobox', { name: 'Old', exact: true }).fill('HEAD')
+    await page.getByRole('combobox', { name: 'Old', exact: true }).press('Escape')
     await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await expect(file.getByText('Please explain this value.')).toBeVisible()
     await expect(file.getByRole('checkbox')).toBeChecked()
@@ -332,8 +366,8 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
       path: testInfo.outputPath('local-review-dark.png'),
       animations: 'disabled',
     })
-    await page.getByRole('combobox', { name: 'From', exact: true }).fill('main')
-    await page.getByRole('combobox', { name: 'From', exact: true }).press('Escape')
+    await page.getByRole('combobox', { name: 'New', exact: true }).fill('main')
+    await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
     await page.getByRole('button', { name: 'About merge-base' }).hover()
     await expect(page.getByRole('tooltip')).toContainText('common ancestor')
     expect(

@@ -67,10 +67,10 @@ test('100,000 tracked files and 1,000 changed files', async ({}, testInfo) => {
   try {
     const page = await application.firstWindow()
     await page.getByRole('region', { name: 'Recent repositories' }).getByRole('button').click()
-    await page.getByRole('combobox', { name: 'From', exact: true }).fill('HEAD')
-    await page.getByRole('combobox', { name: 'From', exact: true }).press('Escape')
-    await page.getByRole('combobox', { name: 'To', exact: true }).fill('HEAD~1')
-    await page.getByRole('combobox', { name: 'To', exact: true }).press('Escape')
+    await page.getByRole('combobox', { name: 'New', exact: true }).fill('HEAD')
+    await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
+    await page.getByRole('combobox', { name: 'Old', exact: true }).fill('HEAD~1')
+    await page.getByRole('combobox', { name: 'Old', exact: true }).press('Escape')
     const firstVisibleMs = await page.evaluate(
       () =>
         new Promise<number>((resolve) => {
@@ -96,7 +96,7 @@ test('100,000 tracked files and 1,000 changed files', async ({}, testInfo) => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await page.getByRole('radio', { name: 'Focused file', exact: true }).click()
     await page.getByRole('button', { name: 'Close settings' }).click()
-    await page.getByRole('button', { name: 'Change →', exact: true }).click()
+    await page.getByRole('button', { name: 'Next file', exact: true }).click()
     await expect(
       page.getByRole('article', { name: paths[1], exact: true }).locator('[data-line]').first(),
     ).toBeVisible()
@@ -105,7 +105,7 @@ test('100,000 tracked files and 1,000 changed files', async ({}, testInfo) => {
         new Promise<number>((resolve) => {
           const started = performance.now()
           ;[...document.querySelectorAll<HTMLButtonElement>('button')]
-            .find((button) => button.textContent === '← Change')!
+            .find((button) => button.getAttribute('aria-label') === 'Previous file')!
             .click()
           const check = () => {
             const article = document.querySelector('article')
@@ -121,7 +121,8 @@ test('100,000 tracked files and 1,000 changed files', async ({}, testInfo) => {
         }),
       paths[0],
     )
-    await page.getByRole('radio', { name: 'All files', exact: true }).click()
+    await page.getByRole('button', { name: 'Filter files', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'All files', exact: true }).click()
     await expect(page.getByText('100000 files · 0 unresolved')).toBeVisible()
     await expect(page.getByRole('tree')).toBeVisible()
     const result = {

@@ -1,9 +1,9 @@
 import { Input } from '@/components/ui/input'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { Menu } from '@base-ui/react/menu'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { preparePresortedFileTreeInput, type GitStatus } from '@pierre/trees'
 import { FileTree, useFileTree } from '@pierre/trees/react'
-import { Files, FileDiff as FileDiffIcon, MessagesSquare } from 'lucide-react'
+import { Check, Filter, Files, FileDiff as FileDiffIcon, MessagesSquare } from 'lucide-react'
 import type { Snapshot } from '../../shared/review'
 import type { Settings, PreferencesPatch } from '../../shared/desktop'
 import { Button } from '@/components/ui/button'
@@ -31,7 +31,6 @@ export function ReviewSidebar({
   setSearch,
   searchRef,
   paths,
-  unresolvedCount,
   totals,
   selected,
   select,
@@ -48,7 +47,6 @@ export function ReviewSidebar({
   setSearch: (search: string) => void
   searchRef: RefObject<HTMLInputElement | null>
   paths: string[]
-  unresolvedCount: number
   totals: { additions: number; deletions: number }
   selected: string
   select: (path: string) => void
@@ -65,39 +63,59 @@ export function ReviewSidebar({
         style={{ width: sidebarWidth }}
       >
         <div className="flex flex-col gap-2 p-3">
-          <ToggleGroup
-            type="single"
-            aria-label="File filter"
-            value={filter}
-            onValueChange={(value) => {
-              if (value) setFilter(value)
-            }}
-          >
-            {(
-              [
-                { value: 'changed', label: 'Changed files', Icon: FileDiffIcon },
-                { value: 'all', label: 'All files', Icon: Files },
-                { value: 'unresolved', label: 'Unresolved threads', Icon: MessagesSquare },
-              ] as const
-            ).map(({ value, label, Icon }) => (
-              <ToggleGroupItem key={value} value={value} aria-label={label} title={label}>
-                <Icon size={16} />
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          <Input
-            ref={searchRef}
-            aria-label="Search files"
-            placeholder="Search files"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-          <span className="text-muted-foreground">
-            {paths.length} files · {unresolvedCount} unresolved
-          </span>
+          <div className="flex items-center gap-1">
+            <Input
+              ref={searchRef}
+              className="flex-1"
+              aria-label="Search files"
+              placeholder="Search files"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            <Menu.Root>
+              <Menu.Trigger
+                render={<Button variant="ghost" size="icon" />}
+                aria-label="Filter files"
+                className="shrink-0"
+              >
+                <Filter aria-hidden="true" />
+              </Menu.Trigger>
+              <Menu.Portal>
+                <Menu.Positioner align="end" sideOffset={5} className="z-40">
+                  <Menu.Popup
+                    aria-label="File filter"
+                    className="min-w-48 rounded-md border bg-background p-1 text-foreground shadow-lg outline-none"
+                  >
+                    <Menu.RadioGroup value={filter} onValueChange={setFilter}>
+                      {[
+                        { value: 'changed', label: 'Changed files', Icon: FileDiffIcon },
+                        { value: 'all', label: 'All files', Icon: Files },
+                        { value: 'unresolved', label: 'Unresolved threads', Icon: MessagesSquare },
+                      ].map(({ value, label, Icon }) => (
+                        <Menu.RadioItem
+                          key={value}
+                          value={value}
+                          closeOnClick
+                          className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 outline-none data-highlighted:bg-accent"
+                        >
+                          <Icon size={16} aria-hidden="true" />
+                          {label}
+                          <span className="ml-auto size-4">
+                            <Menu.RadioItemIndicator>
+                              <Check size={16} aria-hidden="true" />
+                            </Menu.RadioItemIndicator>
+                          </span>
+                        </Menu.RadioItem>
+                      ))}
+                    </Menu.RadioGroup>
+                  </Menu.Popup>
+                </Menu.Positioner>
+              </Menu.Portal>
+            </Menu.Root>
+          </div>
           <span
             data-testid="line-totals"
-            className="flex gap-2 tabular-nums"
+            className="flex gap-2 whitespace-nowrap tabular-nums"
             title="Text lines added and deleted in the listed files. Binary files have no line count."
           >
             <span data-testid="git-added" className="text-git-added">
@@ -106,7 +124,7 @@ export function ReviewSidebar({
             <span data-testid="git-deleted" className="text-git-deleted">
               −{totals.deletions}
             </span>
-            <span className="text-muted-foreground">lines</span>
+            <span className="text-muted-foreground">· {paths.length} files</span>
           </span>
         </div>
         {!!snapshot && (
@@ -183,6 +201,7 @@ function ReviewTree({
   theme: 'light' | 'dark'
 }) {
   const selection = useRef({ selected, onSelect })
+  const syncingSelection = useRef(false)
   selection.current = { selected, onSelect }
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
@@ -220,8 +239,11 @@ function ReviewTree({
   }, [paths, attempt])
   const { model } = useFileTree({
     preparedInput: prepared,
+    density: 'compact',
+    stickyFolders: true,
     initialExpansion: 'open',
     onSelectionChange: (selected) => {
+      if (syncingSelection.current) return
       const path = selected[0]
       if (path && path !== selection.current.selected && !model.getItem(path)?.isDirectory())
         selection.current.onSelect(path)
@@ -236,7 +258,15 @@ function ReviewTree({
     )
   }, [model, prepared, files])
   useEffect(() => {
-    model.getItem(selected)?.select()
+    syncingSelection.current = true
+    try {
+      for (const path of model.getSelectedPaths()) {
+        if (path !== selected) model.getItem(path)?.deselect()
+      }
+      model.getItem(selected)?.select()
+    } finally {
+      syncingSelection.current = false
+    }
     model.scrollToPath(selected, { focus: false })
   }, [model, selected, prepared])
   if (error)
