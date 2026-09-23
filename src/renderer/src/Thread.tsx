@@ -1,144 +1,110 @@
-import { Input } from '@/components/ui/input'
-import { useEffect, useState } from 'react'
-import { Trash2 } from 'lucide-react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import type { LocalThread, ReviewAction, ReviewRecord } from '../../shared/review'
+import { ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Tooltip } from '@/components/ui/tooltip'
+import { useState } from 'react'
+import type { LocalThread, ReviewAction, ReviewRecord } from '../../shared/review'
+import { CommentComposer } from './CommentComposer'
+import { ThreadView } from './ThreadView'
+import { useGitLab } from './GitLab'
 
 export function Thread({
   thread,
   mutate,
   pending,
+  current = false,
+  suggestion,
+  inOverlay = false,
+  onNavigate,
 }: {
   thread: LocalThread
   mutate: (action: ReviewAction) => Promise<ReviewRecord>
   pending: boolean
+  current?: boolean
+  suggestion?: string
+  inOverlay?: boolean
+  onNavigate?: () => void
 }) {
+  const gitlab = useGitLab()
   const [reply, setReply] = useState('')
-  const [now, setNow] = useState(Date.now)
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30000)
-    return () => clearInterval(timer)
-  }, [])
+  const [error, setError] = useState('')
+  const review = gitlab?.review
   return (
-    <section
-      data-testid="local-thread"
-      className="mx-3 my-2 max-w-200 rounded-sm border bg-surface p-3 font-sans text-[13px]/5 font-normal text-foreground"
-      aria-label={`Thread at ${thread.side} line ${thread.start}`}
-    >
-      <div className="flex items-center gap-2">
-        <span data-testid="local-tag" className="rounded-sm border px-1.25 text-muted-foreground">
-          Local
-        </span>
-        {thread.resolved && <span className="text-muted-foreground">Resolved</span>}
-        <Button
-          variant="ghost"
-          className="ml-auto"
-          disabled={pending}
-          onClick={() =>
-            void mutate({ kind: 'resolve', thread: thread.id, resolved: !thread.resolved }).catch(
-              () => undefined,
-            )
-          }
-        >
-          {thread.resolved ? 'Reopen' : 'Resolve'}
-        </Button>
-      </div>
-      {thread.messages.map((message) => {
-        const updated = new Date(message.updatedAt ?? message.createdAt)
-        const seconds = Math.max(0, Math.floor((now - updated.getTime()) / 1000))
-        const unit =
-          seconds < 60
-            ? 'second'
-            : seconds < 3600
-              ? 'minute'
-              : seconds < 86400
-                ? 'hour'
-                : seconds < 2592000
-                  ? 'day'
-                  : seconds < 31536000
-                    ? 'month'
-                    : 'year'
-        const count = Math.floor(
-          seconds /
-            { second: 1, minute: 60, hour: 3600, day: 86400, month: 2592000, year: 31536000 }[unit],
-        )
-        const relative =
-          seconds < 10
-            ? 'just now'
-            : new Intl.RelativeTimeFormat(undefined, { numeric: 'always' }).format(-count, unit)
-        return (
-          <div
-            key={message.id}
-            data-testid="thread-message"
-            className="my-2 flex items-start gap-2"
-          >
-            <div className="min-w-0 flex-1">
-              <Tooltip label={updated.toLocaleString()}>
-                <time
-                  data-testid="comment-date"
-                  className="mb-1 inline-block text-muted-foreground"
-                  tabIndex={0}
-                  dateTime={updated.toISOString()}
-                  aria-label={`Updated ${relative}`}
-                >
-                  {relative}
-                </time>
-              </Tooltip>
-              <div className="min-w-0 flex-1 border-b py-2 whitespace-normal wrap-anywhere markdown">
-                <Markdown
-                  remarkPlugins={[remarkGfm]}
-                  skipHtml
-                  components={{ img: ({ alt }) => <span>{alt}</span> }}
-                >
-                  {message.body}
-                </Markdown>
-              </div>
-            </div>
-            <Button
-              variant="ghost"
-              type="button"
-              className="h-auto shrink-0 rounded-sm p-1.25 text-muted-foreground hover:text-git-deleted"
-              aria-label="Delete comment"
-              title="Delete comment"
-              disabled={pending}
-              onClick={() =>
-                void mutate({
-                  kind: 'delete-comment',
-                  thread: thread.id,
-                  message: message.id,
-                }).catch(() => undefined)
-              }
+    <ThreadView
+      source="Local"
+      label={`Thread at ${thread.side} line ${thread.start}`}
+      messages={thread.messages.map((message) => ({
+        id: message.id,
+        body: message.body,
+        date: message.createdAt,
+        editable: true,
+        author: (
+          <span className="inline-flex min-w-0 items-center gap-2 align-middle">
+            <span
+              aria-hidden="true"
+              className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground ring-1 ring-border"
             >
-              <Trash2 size={14} />
-            </Button>
+              Y
+            </span>
+            <span className="text-foreground">You</span>
+          </span>
+        ),
+      }))}
+      details={
+        inOverlay ? (
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span className="break-all font-mono">
+              {thread.path}:{thread.start}
+              {thread.end !== thread.start ? `–${thread.end}` : ''}
+            </span>
+            {!current && <span>Outdated / unplaced</span>}
+            {onNavigate && (
+              <Button variant="ghost" className="h-6 gap-1 px-2 text-xs" onClick={onNavigate}>
+                <ExternalLink className="size-3.5" />
+                View in diff
+              </Button>
+            )}
           </div>
-        )
-      })}
-      <form
-        data-review-editor
-        className="mt-2.5 flex items-center gap-2"
-        onSubmit={(event) => {
-          event.preventDefault()
-          void mutate({ kind: 'reply', thread: thread.id, body: reply })
-            .then(() => setReply(''))
-            .catch(() => undefined)
-        }}
-      >
-        <Input
-          className="flex-1"
-          aria-label="Reply"
-          placeholder="Reply"
-          value={reply}
-          onChange={(event) => setReply(event.target.value)}
-          maxLength={100000}
+        ) : undefined
+      }
+      loadSuggestion={
+        suggestion !== undefined
+          ? async () => ({ contents: suggestion, before: thread.end - thread.start })
+          : undefined
+      }
+      pending={pending || !!gitlab?.busy}
+      resolved={thread.resolved}
+      error={error || gitlab?.error}
+      onEdit={(id, body) => mutate({ kind: 'edit-comment', thread: thread.id, message: id, body })}
+      onDelete={(id) => mutate({ kind: 'delete-comment', thread: thread.id, message: id })}
+      onResolve={() => mutate({ kind: 'resolve', thread: thread.id, resolved: !thread.resolved })}
+      onUpload={review ? (id) => gitlab!.uploadLocal(thread, id) : undefined}
+      uploadDisabledReason={
+        !review?.aligned
+          ? 'Open the matching MR comparison before publishing.'
+          : !current
+            ? 'The comment location must match the current file before publishing.'
+            : undefined
+      }
+      reply={(close) => (
+        <CommentComposer
+          body={reply}
+          onChange={setReply}
+          label="Reply"
+          busy={pending || !!gitlab?.busy}
+          onPost={() => {
+            setError('')
+            void mutate({ kind: 'reply', thread: thread.id, body: reply })
+              .then(() => {
+                setReply('')
+                close()
+              })
+              .catch((error: Error) => setError(error.message))
+          }}
+          onCancel={() => {
+            setReply('')
+            close()
+          }}
         />
-        <Button type="submit" variant="outline" disabled={!reply.trim() || pending}>
-          Reply
-        </Button>
-      </form>
-    </section>
+      )}
+    />
   )
 }

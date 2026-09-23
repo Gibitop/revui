@@ -66,6 +66,14 @@ export const actionSchema = z.discriminatedUnion('kind', [
       message: z.string().uuid(),
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal('edit-comment'),
+      thread: z.string().uuid(),
+      message: z.string().uuid(),
+      body: bodySchema,
+    })
+    .strict(),
   z.object({ kind: z.literal('reply'), thread: z.string().uuid(), body: bodySchema }).strict(),
   z
     .object({ kind: z.literal('resolve'), thread: z.string().uuid(), resolved: z.boolean() })
@@ -437,10 +445,32 @@ export class ReviewService {
         )
       }
     }
+    // Preserve branch identity independently from the immutable comparison endpoints.
+    let branches: Snapshot['branches']
+    if (input.base.kind === 'commit' && input.target.kind === 'commit') {
+      const names = await Promise.all(
+        [input.target.ref, input.base.ref].map(async (ref) => {
+          const name = (
+            await this.git(
+              repository,
+              ['rev-parse', '--symbolic-full-name', '--verify', '--end-of-options', ref],
+              signal,
+            )
+          )
+            .toString()
+            .trim()
+          if (name.startsWith('refs/heads/')) return name.slice(11)
+          if (name.startsWith('refs/remotes/origin/')) return name.slice(20)
+          return null
+        }),
+      )
+      if (names[0] && names[1]) branches = { source: names[0], target: names[1] }
+    }
     const key = digest(JSON.stringify({ repository, comparison }))
     const snapshot: Snapshot = {
       id: randomUUID(),
       key,
+      branches,
       repository,
       comparison,
       files: [...files.values()],
@@ -482,6 +512,10 @@ export class ReviewService {
     signal.throwIfAborted()
     if (this.pending?.controller === controller) this.pending = undefined
     return snapshot
+  }
+
+  gitlabSnapshot(id: string): Snapshot {
+    return structuredClone(this.get(id).snapshot)
   }
 
   async workspaceSnapshot(id: string): Promise<Snapshot & { indexTree?: string }> {
@@ -924,6 +958,11 @@ export class ReviewService {
           thread.messages = thread.messages.filter((message) => message.id !== action.message)
           if (!thread.messages.length)
             record.threads = record.threads.filter((item) => item.id !== thread.id)
+        } else if (action.kind === 'edit-comment') {
+          const message = thread.messages.find((message) => message.id === action.message)
+          if (!message) throw new Error('Comment does not exist in this thread.')
+          message.body = action.body
+          message.updatedAt = now
         } else if (action.kind === 'resolve') thread.resolved = action.resolved
         else
           thread.messages.push({

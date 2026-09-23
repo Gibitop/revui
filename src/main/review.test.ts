@@ -435,6 +435,19 @@ it('migrates thread dates and persists comment deletion, removing empty threads'
   expect(migrated.messages[0].updatedAt).toBe(migrated.messages[0].createdAt)
   expect(migrated.messages[1].updatedAt).toBe(migrated.messages[1].createdAt)
   const reply = record.threads[0].messages[1].id
+  const original = record.threads[0].messages[0]
+  record = await service.update(snapshot.id, {
+    kind: 'edit-comment',
+    thread: thread.id,
+    message: original.id,
+    body: 'Edited comment',
+  })
+  expect(record.threads[0].messages[0]).toMatchObject({
+    id: original.id,
+    createdAt: original.createdAt,
+    body: 'Edited comment',
+  })
+  expect((await service.records(snapshot.id)).threads[0].messages[0].body).toBe('Edited comment')
   record = await service.update(snapshot.id, {
     kind: 'delete-comment',
     thread: thread.id,
@@ -663,4 +676,29 @@ it('fetches remote updates before resolving a refreshed comparison', async () =>
   )
   await git('remote', 'set-url', 'origin', join(root, 'missing-remote'))
   await expect(service.open(repository, comparison, undefined, true)).rejects.toThrow()
+})
+
+it('preserves branch pairs separately from resolved SHAs for GitLab lookup', async () => {
+  const { repository, git, write, service } = await fixture()
+  await git('checkout', '-b', 'feature/nested')
+  await write('file.txt', 'changed\n')
+  await git('commit', '-am', 'feature')
+  await git('update-ref', 'refs/remotes/origin/feature/nested', 'HEAD')
+  await git('update-ref', 'refs/remotes/origin/main', 'main')
+  const snapshot = await service.open(repository, {
+    base: { kind: 'commit', ref: 'origin/main' },
+    target: { kind: 'commit', ref: 'origin/feature/nested' },
+    mode: 'merge-base',
+  })
+  expect(snapshot.branches).toEqual({ source: 'feature/nested', target: 'main' })
+  expect(snapshot.comparison.target).toMatchObject({
+    ref: (await git('rev-parse', 'HEAD')).stdout.trim(),
+  })
+  await git('tag', 'release')
+  const tag = await service.open(repository, {
+    base: { kind: 'commit', ref: 'main' },
+    target: { kind: 'commit', ref: 'release' },
+    mode: 'direct',
+  })
+  expect(tag.branches).toBeUndefined()
 })

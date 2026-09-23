@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { channels, type DesktopAPI } from '../shared/desktop'
 
 const desktop: DesktopAPI = {
+  gitlab: (request) => ipcRenderer.invoke(channels.gitlab, request),
   workspaceAction: (...args) => ipcRenderer.invoke(channels.workspaceAction, ...args),
   findWorkspace: (...args) => ipcRenderer.invoke(channels.findWorkspace, ...args),
   initializeWorkspace: (...args) => ipcRenderer.invoke(channels.initializeWorkspace, ...args),
@@ -22,6 +23,7 @@ const desktop: DesktopAPI = {
     }
   },
 
+  openWebLink: (url) => ipcRenderer.invoke(channels.openWebLink, url),
   copyRelativePath: (path) => ipcRenderer.invoke(channels.copyRelativePath, path),
   getRepositoryRefs: (repository) => ipcRenderer.invoke(channels.getRepositoryRefs, repository),
   searchReviewContents: (snapshot, query, paths, options) =>

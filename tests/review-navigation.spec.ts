@@ -102,8 +102,17 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     await page.getByRole('button', { name: 'Clear content search' }).click()
     await page.getByRole('button', { name: 'Close search', exact: true }).click()
     await file.locator('[data-column-number="600"][data-line-type="change-addition"]').click()
+    const composer = file.getByTestId('thread-composer')
+    await composer.getByRole('button', { name: 'Decrease start line' }).click()
+    await composer.getByRole('button', { name: 'Increase end line' }).click()
+    await composer.getByRole('button', { name: 'Insert suggestion' }).click()
+    await expect(page.getByLabel('Comment on src/long.ts')).toHaveValue(
+      '```suggestion:-2+0\n' + lines.slice(598, 601).join('\n') + '\n```',
+    )
+    await composer.getByRole('button', { name: 'Increase start line' }).click()
+    await composer.getByRole('button', { name: 'Decrease end line' }).click()
     await page.getByLabel('Comment on src/long.ts').fill('Review this distant line')
-    await page.getByRole('button', { name: 'Save thread', exact: true }).click()
+    await page.getByRole('button', { name: 'Post now', exact: true }).click()
     await expect(file.getByText('Review this distant line')).toBeVisible()
     const stamp = file.locator('[data-testid="comment-date"]')
     await expect(stamp).toContainText(/just now|ago/)
@@ -129,6 +138,10 @@ test('long-file thread navigation stays inside the review pane; native copy and 
       await expect(file.getByText('Review this distant line')).toBeVisible()
     }
     await file.getByRole('button', { name: 'Delete comment' }).click()
+    await page
+      .getByRole('dialog', { name: 'Delete comment?' })
+      .getByRole('button', { name: 'Delete comment', exact: true })
+      .click()
     await expect(file.locator('[data-testid="local-thread"]')).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Next thread', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'All changes', exact: true })).toHaveCount(0)
@@ -432,7 +445,7 @@ test('unresolved threads remain accessible after an untracked file disappears', 
     const file = page.getByRole('article', { name: 'temporary.txt', exact: true })
     await file.locator('[data-column-number="1"][data-line-type="change-addition"]').click()
     await page.getByLabel('Comment on temporary.txt').fill('Keep this unresolved note')
-    await page.getByRole('button', { name: 'Save thread', exact: true }).click()
+    await page.getByRole('button', { name: 'Post now', exact: true }).click()
     await expect(file.getByText('Keep this unresolved note')).toBeVisible()
     await rm(join(repository, 'temporary.txt'))
     await page.getByRole('button', { name: 'Refresh comparison', exact: true }).click()

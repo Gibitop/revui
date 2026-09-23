@@ -1,3 +1,4 @@
+import { registerGitLabIPC } from './gitlab-ipc'
 import { registerWorkspaceIPC } from './workspace-ipc'
 import {
   app,
@@ -7,6 +8,7 @@ import {
   ipcMain,
   nativeTheme,
   session,
+  shell,
   type IpcMainInvokeEvent,
 } from 'electron'
 import { join } from 'node:path'
@@ -175,11 +177,19 @@ if (!app.requestSingleInstanceLock()) {
         publishSettings(await settings.rememberRepository(repository.path))
         return repository
       })
+      ipcMain.handle(channels.openWebLink, (event, value: unknown) => {
+        assertSender(event)
+        const url = new URL(z.string().min(1).max(32768).parse(value))
+        if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password)
+          throw new Error('Only HTTP(S) links without embedded credentials can be opened.')
+        return shell.openExternal(url.href)
+      })
       ipcMain.handle(channels.copyRelativePath, (event, path: unknown) => {
         assertSender(event)
         return clipboard.writeText(z.string().min(1).max(32768).parse(path))
       })
       const reviews = new ReviewService(app.getPath('userData'))
+      await registerGitLabIPC(app.getPath('userData'), reviews, assertSender)
       const repositoryPath = (value: unknown) => {
         const path = z.string().min(1).max(32768).parse(value)
         if (!settings.get().recentRepositories.includes(path))

@@ -6,3 +6,4 @@ playwright-report
 
 # Preserve vendored SVGL assets unchanged.
 src/renderer/src/assets/ide/*.svg
+src/renderer/src/assets/gitlab/*.svg

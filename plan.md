@@ -27,15 +27,15 @@ The app supports reading code, writing review comments, and composing suggestion
 - Use TanStack Query for asynchronous desktop data and a small Zustand store for shared UI state.
 - Store settings and review records as versioned JSON under Electron’s application-data directory, using atomic writes. Separate records by repository and review; do not persist large repository trees in review records.
 - Encrypt GitLab tokens through Electron `safeStorage`; keep plaintext tokens out of renderer state and logs. [safeStorage documentation](https://www.electronjs.org/docs/latest/api/safe-storage)
-- Persist drafts, local threads, reviewed-file progress, AI findings, walkthroughs, panel preferences, and harness session identifiers.
+- Persist local threads, reviewed-file progress, AI findings, walkthroughs, panel preferences, and harness session identifiers.
 
 ### Review interface
 
-- A single top toolbar: repository selector, MR meta / review tabs, comparison controls (in review tab), and settings. Integrate native window controls into this row.
-- Left (review tab): searchable file tree.
-- Center (review tab): continuous multi-file diff by default, with a focused single-file mode.
-- Center (MR meta tab): MR title, metadata, and approval action
-- Right (both tabs): collapsible AI chat and review walkthrough.
+- A single top toolbar: repository selector, comparison controls, search and adjacent MR buttons, and settings. Integrate native window controls into this row.
+- Left: searchable file tree.
+- Center: continuous multi-file diff by default, with a focused single-file mode.
+- MR metadata opens in a right-side overlay like search, triggered by the button beside Search. Include title, metadata, discussions and approval actions.
+- Right: collapsible AI chat and review walkthrough.
 - Provide unified/split diffs, light/dark/system themes, resizable panels, keyboard navigation, file search, next/previous change, and next/previous unresolved thread.
 - Use a monochrome palette. Reserve color for semantic UI such as added/deleted lines and diagnostic status.
 - Use at most three text styles: regular UI text (Geist 400), emphasized labels (Geist 600), and code/paths (Geist Mono 400). All use 13px font size, 20px line height, normal letter spacing, and no text transforms.
@@ -91,21 +91,25 @@ Configure a self-hosted instance URL and personal access token. Infer project id
 
 List the inferred project’s open MRs, prioritizing the checked-out source branch. Resolve MR identity and canonical URL through GitLab; do not assume a branch identifies exactly one MR.
 
+On opening a diff, look up open MRs using **New as source branch** and **Old as target branch**, preserving branch names separately from resolved commit IDs. Accept local branches and `origin` remote-tracking branches; commit/tag and mutable comparisons have no inferred MR. Match the inferred source project as well as both branch names. If multiple MRs match, let the user select one.
+
+The adjacent MR button opens the side overlay when a match is cached. Otherwise clicking retries lookup. Show a spinner for the entire lookup; when no MR is found, turn the button red for one second and then restore its normal appearance. Network/authentication errors remain distinguishable from an empty result. Reset lookup state on comparison changes and ignore stale responses.
+
 Implement:
 
 - MR title, description, tags, author, reviewers, source/target branches, status, pipeline summary, and approval state.
 - General comments, inline discussions, replies, resolved discussions, and outdated discussions.
 - Create comments and suggestions, edit permitted comments, resolve/reopen threads, approve/unapprove.
-- Per-comment **Post now** and **Save draft**, plus publishing selected drafts.
+- Per-comment **Post now**, with local comments that can later be uploaded to GitLab.
 - Local-only AI findings until the user explicitly publishes them.
 
 Use GitLab’s diff-version references and old/new paths and line positions for inline comments. Keep GitLab anchors distinct from local comparison anchors. Comments that cannot be placed accurately remain accessible in an outdated/unplaced discussion view. [Discussions API](https://docs.gitlab.com/api/discussions/)
 
 Pin each MR review to its loaded revision. Poll the active MR every 60 seconds while focused, refresh on window focus, and provide manual refresh. New commits show an update banner; switching revisions is explicit.
 
-Before publishing drafts, validate the current MR revision and comment anchors. Approval includes the reviewed head SHA so GitLab rejects stale approval. [Approval API](https://docs.gitlab.com/api/merge_request_approvals/)
+Before posting comments, validate the current MR revision and comment anchors. Approval includes the reviewed head SHA so GitLab rejects stale approval. [Approval API](https://docs.gitlab.com/api/merge_request_approvals/)
 
-Preserve drafts through offline periods and failures. Do not automatically retry an uncertain comment creation, which could duplicate a successful post. Report partial batch-publish results per comment.
+Keep composer text on posting failures. Do not automatically retry an uncertain comment creation, which could duplicate a successful post. Local comments remain available until an upload is confirmed.
 
 ### Local review records
 
@@ -135,7 +139,7 @@ AI features:
 - Explicit **Review changes** and **Suggest review order** actions.
 - Findings containing severity, explanation, path, side, line range, and optional replacement code.
 - A grouped walkthrough of related files/hunks with rationale and completion state.
-- Accept, dismiss, edit, and convert findings into local threads or GitLab drafts.
+- Accept, dismiss, edit, and convert findings into local threads or explicitly posted GitLab comments.
 
 Request structured review results and validate them against the snapshot before displaying actionable annotations. Invalid or unanchored output remains visible as text, never as a fabricated inline finding. Do not change the user’s review order automatically.
 
@@ -161,16 +165,16 @@ Base-side semantic navigation and other language servers are deferred.
 
 ## 4. Implementation milestones
 
-| Milestone                      | Deliverable and completion criteria                                                                                                                                                                              |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **0. Foundation**              | Save `plan.md`; scaffold Electron/React/pnpm; establish IPC, settings, themes, and test tooling. Confirm startup on macOS and Windows.                                                                           |
-| **1. Local review**            | Open/reopen repositories; implement all comparison modes, both layouts, tree filters, local threads, reviewed markers, and lazy diff loading. Usable offline without GitLab or AI installed.                     |
-| **2. Workspace tools**         | Add worktree/in-place preparation, safe stash restoration, post-checkout scripts and IDE opening. Verify failure recovery before enabling GitLab-driven workspace preparation.                                   |
-| **3. GitLab review**           | Add token setup, `origin` discovery, MR selection/metadata, all discussion workflows, suggestions, immediate/draft publishing, refresh handling, and approval. A complete human MR review can happen in the app. |
-| **4. Codex review**            | Add chat, approvals, cancellation/resume, structured findings, publishing selected findings, and grouped walkthroughs. Results remain tied to the reviewed snapshot.                                             |
-| **5. OpenCode**                | Add the ACP adapter and run the same chat/review acceptance scenarios. Surface capability differences explicitly.                                                                                                |
-| **6. TypeScript intelligence** | Add target-side hovers/definitions and contextual suggestion completion/diagnostics without source writes.                                                                                                       |
-| **7. Team readiness**          | Complete monorepo benchmarks, accessibility and keyboard checks, recovery testing, onboarding documentation, and macOS/Windows setup verification.                                                               |
+| Milestone                      | Deliverable and completion criteria                                                                                                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **0. Foundation**              | Save `plan.md`; scaffold Electron/React/pnpm; establish IPC, settings, themes, and test tooling. Confirm startup on macOS and Windows.                                                               |
+| **1. Local review**            | Open/reopen repositories; implement all comparison modes, both layouts, tree filters, local threads, reviewed markers, and lazy diff loading. Usable offline without GitLab or AI installed.         |
+| **2. Workspace tools**         | Add worktree/in-place preparation, safe stash restoration, post-checkout scripts and IDE opening. Verify failure recovery before enabling GitLab-driven workspace preparation.                       |
+| **3. GitLab review**           | Add token setup, `origin` discovery, MR selection/metadata, all discussion workflows, suggestions, direct posting, refresh handling, and approval. A complete human MR review can happen in the app. |
+| **4. Codex review**            | Add chat, approvals, cancellation/resume, structured findings, publishing selected findings, and grouped walkthroughs. Results remain tied to the reviewed snapshot.                                 |
+| **5. OpenCode**                | Add the ACP adapter and run the same chat/review acceptance scenarios. Surface capability differences explicitly.                                                                                    |
+| **6. TypeScript intelligence** | Add target-side hovers/definitions and contextual suggestion completion/diagnostics without source writes.                                                                                           |
+| **7. Team readiness**          | Complete monorepo benchmarks, accessibility and keyboard checks, recovery testing, onboarding documentation, and macOS/Windows setup verification.                                                   |
 
 Each milestone ends with a usable application, relevant automated checks, and an updated `plan.md`. Performance work happens throughout rather than being postponed to milestone 7.
 
@@ -217,7 +221,20 @@ Each milestone ends with a usable application, relevant automated checks, and an
 - [x] All 41 Vitest checks pass, including new coverage for dirty worktrees, ignored output, partially staged/untracked restoration, independent user stashes, restart/crash recovery, failed checkout, conflicting restoration, manual recovery, stale-index isolation, script output/failure/cancellation, command preferences, legacy-settings migration, IDE path validation, tag/commit identity matching, and staged checkout matching.
 - [x] TypeScript, Hooks lint, formatting, production build, and all eight enabled Playwright desktop tests pass locally. The desktop flow verifies preparation, setup output and retry, project/file IDE arguments, explicit cleanup in Settings, comparison-exit restoration, and matching-tag initialization. The opt-in benchmark is not rerun for this milestone.
 
-**Next: milestone 3, GitLab review.** MR and AI controls remain omitted until their integrations are functional. Monaco remains the planned suggestion editor in milestone 6.
+**Milestone 3: implemented and verified with API fixtures and Electron on macOS arm64. Live GitLab and Windows validation pending.**
+
+- [x] Settings → GitLab with instance URL, OS-encrypted personal access token, connection/version probe, optional PEM CA certificate, and explicit TLS-verification override. Tokens stay in the main process after submission.
+- [x] Origin discovery for HTTP(S), SSH and nested projects; explicit hostname/path mismatch and SSH-alias errors. Clone URLs may use a different scheme or port from the configured API endpoint. Preserve branch names separately from immutable comparison IDs. Paginated open-MR lookup matches New/source, Old/target, and source project; ambiguous matches offer selection.
+- [x] MR button beside Search, automatic comparison lookup, cached overlay opening, click-to-retry, lookup spinner, one-second red miss feedback, and stale-result protection when changing comparisons.
+- [x] Right-side MR overlay with metadata, Markdown description, reviewers, labels, pipeline, approvals, discussions; replaces the planned MR metadata tab.
+- [x] GitLab-version-based inline anchors with renamed paths and contextual line mapping; current inline discussions and unresolved navigation. All outdated/unplaced and general discussions remain accessible in the overlay.
+- [x] General/inline comments, range-based suggestions, replies, permitted edits, resolve/reopen, direct posting, and approve/unapprove with the reviewed SHA. Shared GitLab/local composer defaults to GitLab when available, includes adjustable start/end lines, suggestions prefilled from the selected code, and a Post now / Cancel row. GitLab multiline positions cover the selected range.
+- [x] Comments post directly; failures keep composer text, uncertain outcomes are never automatically retried, and local uploads remove the local comment only after confirmed success.
+- [x] Focus-aware 60-second polling, focus/manual refresh, explicit new-revision banner and fetch/open action; revision and anchor validation before posting comments. Unaligned comparisons cannot approve or post inline.
+- [x] TypeScript, Hooks lint, formatting, production build, Vitest checks, and Playwright desktop tests pass. Coverage includes lookup pagination/project matching, branch identity, changed MR heads, renamed paths, permissions, direct multiline posting, uncertain posting outcomes, the overlay/spinner/red flash, automatic and stale lookup, inline suggestions, approvals and unresolved navigation. The opt-in benchmark was not rerun. Installed tool entry points were used directly because pnpm registry-signature verification was unavailable in the execution environment.
+- [ ] Validate against a designated real GitLab test project and record its tested server version; Windows validation remains pending CI.
+
+**Next: milestone 4, Codex review.** AI controls remain omitted until functional. Monaco remains the planned suggestion editor in milestone 6.
 
 Implementation note: Electron Vite 5 currently requires Vite 5–7. Use Vite 7 with React plugin 5, rather than the incompatible latest Vite/React-plugin majors. Tests and scripts run with Node where required; Electron owns desktop runtime execution.
 
@@ -226,7 +243,7 @@ Implementation note: Electron Vite 5 currently requires Vite 5–7. Use Vite 7 w
 ### Tests
 
 - **Git integration:** temporary repositories covering merges, renames, unusual filenames, CRLF, untracked files, partially staged files, conflicts, worktrees, and stash restoration failures.
-- **GitLab integration:** API fixtures for pagination, nested projects, outdated discussions, permission failures, changed MR heads, uncertain network outcomes, and partial publishing. Validate against a designated test project before relying on production writes.
+- **GitLab integration:** API fixtures for pagination, nested projects, outdated discussions, permission failures, changed MR heads, uncertain network outcomes, and direct posting. Validate against a designated test project before relying on production writes.
 - **Harness integration:** recorded protocol fixtures plus manual smoke tests with installed Codex/OpenCode; cover approval denial, cancellation, process crashes, resume, malformed findings, and changed snapshots.
 - **Language tooling:** project fixtures with imports, aliases, TSX, project references, missing dependencies, and replacement blocks that shift line numbers. Verify that source files remain unchanged.
 - **UI:** Vitest for meaningful state/domain behavior and Playwright Electron tests for critical review flows. Exercise both supported operating systems.

@@ -1,3 +1,5 @@
+import type { GitLabReview } from '../../shared/gitlab'
+import { GitLabProvider, GitLabButton } from './GitLab'
 import { WorkspaceTools } from './WorkspaceTools'
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -79,7 +81,9 @@ function ReviewSession({
   preferences: (patch: PreferencesPatch) => void
   initial: Comparison
 }) {
+  const [gitlabReview, setGitlabReview] = useState<GitLabReview>()
   const [initialComparison] = useState(initial)
+  const [controls, setControls] = useState({ comparison: initial, version: 0 })
   const [sidebarWidth, setSidebarWidth] = useState(settings.sidebarWidth)
   const [searchHit, setSearchHit] = useState<(ContentMatch & { key: number }) | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -188,10 +192,11 @@ function ReviewSession({
     if (
       threadFocus &&
       records.data &&
-      !records.data.threads.some((thread) => thread.id === threadFocus)
+      !records.data.threads.some((thread) => thread.id === threadFocus) &&
+      !gitlabReview?.discussions.some((thread) => thread.id === threadFocus)
     )
       setThreadFocus(null)
-  }, [records.data, threadFocus])
+  }, [records.data, threadFocus, gitlabReview])
   const filesByPath = useMemo(
     () => new Map(snapshot.data?.files.map((file) => [file.path, file])),
     [snapshot.data],
@@ -206,11 +211,36 @@ function ReviewSession({
     }
     return result
   }, [records.data])
-  const unresolved = records.data?.threads.filter((thread) => !thread.resolved) ?? []
+  const remoteThreads = useMemo(() => {
+    if (!gitlabReview?.aligned) return []
+    return gitlabReview.discussions.flatMap((discussion) => {
+      const note = discussion.notes[0]
+      const position = note?.position
+      if (
+        !note?.resolvable ||
+        !position ||
+        position.position_type !== 'text' ||
+        !Number.isInteger(position.new_line ?? position.old_line) ||
+        position.head_sha !== gitlabReview.pinned.head_sha ||
+        position.base_sha !== gitlabReview.pinned.base_sha ||
+        position.start_sha !== gitlabReview.pinned.start_sha
+      )
+        return []
+      const file = snapshot.data?.files.find((file) =>
+        position.new_line ? file.path === position.new_path : file.oldPath === position.old_path,
+      )
+      return file ? [{ id: discussion.id, path: file.path, resolved: note.resolved }] : []
+    })
+  }, [gitlabReview, snapshot.data])
+  const unresolved = [...(records.data?.threads ?? []), ...remoteThreads].filter(
+    (thread) => !thread.resolved,
+  )
   const filterThreads = filter === 'unresolved' ? records.data?.threads : undefined
   const paths = useMemo(() => {
     const unresolvedPaths = new Set(
-      filterThreads?.filter((thread) => !thread.resolved).map((thread) => thread.path),
+      [...(filterThreads ?? []), ...remoteThreads]
+        .filter((thread) => !thread.resolved)
+        .map((thread) => thread.path),
     )
     const paths =
       filter === 'all'
@@ -219,7 +249,7 @@ function ReviewSession({
           ? [...unresolvedPaths]
           : (snapshot.data?.files.map((file) => file.path) ?? [])
     return paths.filter((path) => path.toLowerCase().includes(search.toLowerCase()))
-  }, [snapshot.data, filterThreads, filter, search])
+  }, [snapshot.data, filterThreads, remoteThreads, filter, search])
   const totals = useMemo(() => {
     const included = new Set(paths)
     return (snapshot.data?.files ?? []).reduce(
@@ -360,8 +390,9 @@ function ReviewSession({
         createPortal(
           <div className="flex items-center gap-2">
             <ComparisonControls
+              key={controls.version}
               repository={repository}
-              initial={initialComparison}
+              initial={controls.comparison}
               isPending={snapshot.isPending}
               onCompare={(comparison, refresh) => {
                 const change = ++comparisonChange.current
@@ -386,99 +417,127 @@ function ReviewSession({
           </div>,
           toolbar,
         )}
-      {searchToolbar &&
-        createPortal(
-          <ContentSearch
-            snapshotId={snapshot.data?.id}
-            paths={paths}
-            filesByPath={filesByPath}
-            theme={theme}
-            inputRef={contentSearchRef}
-            open={searchOpen}
-            onOpenChange={setSearchOpen}
-            onSelect={(match) => {
-              setSelected(match.path)
-              setThreadFocus(null)
-              setSearchHit({ ...match, key: Date.now() })
-            }}
-            onClear={() => setSearchHit(null)}
-            hasHit={!!searchHit}
-          />,
-          searchToolbar,
-        )}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <ReviewSidebar
-          snapshot={snapshot.data}
-          settings={settings}
-          sidebarWidth={sidebarWidth}
-          setSidebarWidth={setSidebarWidth}
-          preferences={preferences}
-          filter={filter}
-          setFilter={setFilter}
-          search={search}
-          setSearch={setSearch}
-          searchRef={searchRef}
-          paths={paths}
-          totals={totals}
-          selected={selected}
-          select={select}
-          theme={theme}
-          canNavigate={!!changed.length}
-          navigate={(direction) => navigate(direction)}
-          threadFocused={!!threadFocus}
-          onShowAll={() => setThreadFocus(null)}
-        />
-        <section className="flex min-w-0 flex-1 flex-col" aria-label="Code review">
-          {snapshot.isPending && (
-            <p className="p-6">
-              Loading comparison…{' '}
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  const current = request.current
-                  request.current = null
-                  if (current) void window.desktop.cancelComparison(current.id)
-                  setSnapshot({ isPending: false })
+      <GitLabProvider
+        localThreads={records.data?.threads}
+        snapshot={snapshot.data}
+        onReviewChange={setGitlabReview}
+        onNavigateThread={(path, discussion) => {
+          setFilter('all')
+          setSearch('')
+          setSelected(path)
+          setSearchHit(null)
+          setThreadFocus(discussion)
+          setThreadVisit((value) => value + 1)
+        }}
+        onCompare={(comparison) => {
+          void window.desktop
+            .leaveWorkspace(repository.path)
+            .then((allowed) => {
+              if (allowed) {
+                setControls((current) => ({ comparison, version: current.version + 1 }))
+                openComparison(comparison, true)
+              }
+            })
+            .catch((error) => setSnapshot((current) => ({ ...current, error })))
+        }}
+      >
+        {searchToolbar &&
+          createPortal(
+            <>
+              <ContentSearch
+                snapshotId={snapshot.data?.id}
+                paths={paths}
+                filesByPath={filesByPath}
+                theme={theme}
+                inputRef={contentSearchRef}
+                open={searchOpen}
+                onOpenChange={setSearchOpen}
+                onSelect={(match) => {
+                  setSelected(match.path)
+                  setThreadFocus(null)
+                  setSearchHit({ ...match, key: Date.now() })
                 }}
-              >
-                Cancel
-              </Button>
-            </p>
+                onClear={() => setSearchHit(null)}
+                hasHit={!!searchHit}
+              />
+              <GitLabButton />
+            </>,
+            searchToolbar,
           )}
-          {(snapshot.error || records.error) && (
-            <p className="p-6" role="alert">
-              {snapshot.error?.message ?? records.error?.message}
-            </p>
-          )}
-          {snapshot.data && !visiblePaths.length && (
-            <p className="p-6">
-              {paths.length ? 'Select a file to review.' : 'No files match this view.'}
-            </p>
-          )}
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <ReviewSidebar
+            snapshot={snapshot.data}
+            settings={settings}
+            sidebarWidth={sidebarWidth}
+            setSidebarWidth={setSidebarWidth}
+            preferences={preferences}
+            filter={filter}
+            setFilter={setFilter}
+            search={search}
+            setSearch={setSearch}
+            searchRef={searchRef}
+            paths={paths}
+            totals={totals}
+            selected={selected}
+            select={select}
+            theme={theme}
+            canNavigate={!!changed.length}
+            navigate={(direction) => navigate(direction)}
+            threadFocused={!!threadFocus}
+            onShowAll={() => setThreadFocus(null)}
+          />
+          <section className="flex min-w-0 flex-1 flex-col" aria-label="Code review">
+            {snapshot.isPending && (
+              <p className="p-6">
+                Loading comparison…{' '}
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    const current = request.current
+                    request.current = null
+                    if (current) void window.desktop.cancelComparison(current.id)
+                    setSnapshot({ isPending: false })
+                  }}
+                >
+                  Cancel
+                </Button>
+              </p>
+            )}
+            {(snapshot.error || records.error) && (
+              <p className="p-6" role="alert">
+                {snapshot.error?.message ?? records.error?.message}
+              </p>
+            )}
+            {snapshot.data && !visiblePaths.length && (
+              <p className="p-6">
+                {paths.length ? 'Select a file to review.' : 'No files match this view.'}
+              </p>
+            )}
 
-          <div data-testid="diff-scroll" className="flex min-h-0 flex-1">
-            <Virtualizer className="min-h-0 flex-1 overflow-auto overscroll-contain">
-              {snapshot.data &&
-                visiblePaths.map((path) => (
-                  <ReviewFileCard
-                    key={`${snapshot.data!.id}:${path}`}
-                    workspaceId={activeWorkspace}
-                    snapshot={snapshot.data!}
-                    path={path}
-                    record={records.data}
-                    metadata={filesByPath.get(path)}
-                    threads={threadsByPath.get(path) ?? []}
-                    settings={settings}
-                    theme={theme}
-                    threadFocus={threadFocus}
-                    threadVisit={threadVisit}
-                    searchHit={searchHit?.path === path ? searchHit : null}
-                  />
-                ))}
-            </Virtualizer>
-          </div>
-        </section>
-      </div>
+            <div data-testid="diff-scroll" className="flex min-h-0 flex-1">
+              <Virtualizer className="min-h-0 flex-1 overflow-auto overscroll-contain">
+                {snapshot.data &&
+                  visiblePaths.map((path) => (
+                    <ReviewFileCard
+                      key={`${snapshot.data!.id}:${path}`}
+                      workspaceId={activeWorkspace}
+                      snapshot={snapshot.data!}
+                      path={path}
+                      record={records.data}
+                      metadata={filesByPath.get(path)}
+                      threads={threadsByPath.get(path) ?? []}
+                      settings={settings}
+                      theme={theme}
+                      threadFocus={threadFocus}
+                      threadVisit={threadVisit}
+                      searchHit={searchHit?.path === path ? searchHit : null}
+                    />
+                  ))}
+              </Virtualizer>
+            </div>
+          </section>
+        </div>
+      </GitLabProvider>
     </>
   )
 }

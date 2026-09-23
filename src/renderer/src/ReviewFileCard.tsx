@@ -1,8 +1,10 @@
+import { useGitLab, GitLabComposer, GitLabDiscussion } from './GitLab'
+import type { Discussion } from '../../shared/gitlab'
 import { IDEButton } from './IDEButton'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { CommentComposer } from './CommentComposer'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { File, FileDiff, type FileDiffMetadata } from '@pierre/diffs/react'
 import {
@@ -52,6 +54,7 @@ export function ReviewFileCard({
   threadVisit: number
   searchHit: (ContentMatch & { key: number }) | null
 }) {
+  const gitlab = useGitLab()
   const root = useRef<HTMLElement>(null)
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
@@ -69,6 +72,7 @@ export function ReviewFileCard({
   const [range, setRange] = useState<SelectedLineRange | null>(null)
   const [selectingRange, setSelectingRange] = useState<SelectedLineRange | null>(null)
   const [body, setBody] = useState('')
+  const [destination, setDestination] = useState<'local' | 'gitlab'>('gitlab')
   const [pendingReviewed, setPendingReviewed] = useState<boolean | null>(null)
   const queryClient = useQueryClient()
   useEffect(() => {
@@ -137,8 +141,7 @@ export function ReviewFileCard({
   const outdated = threads.filter((thread) => thread.fingerprint !== content.data?.fingerprint)
 
   const focusedThread = threads.find((thread) => thread.id === threadFocus)
-  const save = async (event: FormEvent) => {
-    event.preventDefault()
+  const save = async () => {
     if (!range || (range.endSide && range.side && range.endSide !== range.side)) return
     await mutation
       .mutateAsync({
@@ -156,15 +159,52 @@ export function ReviewFileCard({
       .catch(() => undefined)
   }
   const scrolledHit = useRef<string | null>(null)
-  const anchor = searchHit
-    ? { line: searchHit.line, side: 'additions' as const, key: `search:${searchHit.key}` }
-    : focusedThread && focusedThread.fingerprint === content.data?.fingerprint
+  const remoteFocus = gitlab?.review?.discussions.find(
+    (discussion) => discussion.id === threadFocus,
+  )?.notes[0]?.position
+  const remoteCurrent =
+    !!remoteFocus &&
+    !!gitlab?.review?.aligned &&
+    remoteFocus.head_sha === gitlab.review.pinned.head_sha &&
+    remoteFocus.base_sha === gitlab.review.pinned.base_sha &&
+    remoteFocus.start_sha === gitlab.review.pinned.start_sha
+  const anchor =
+    remoteFocus?.position_type === 'text' &&
+    remoteCurrent &&
+    Number.isInteger(remoteFocus.new_line ?? remoteFocus.old_line)
       ? {
-          line: focusedThread.start,
-          side: focusedThread.side,
-          key: `thread:${focusedThread.id}:${threadVisit}`,
+          line: remoteFocus.new_line ?? remoteFocus.old_line!,
+          side: remoteFocus.new_line ? ('additions' as const) : ('deletions' as const),
+          key: `gitlab:${threadFocus}:${threadVisit}`,
         }
-      : null
+      : searchHit
+        ? { line: searchHit.line, side: 'additions' as const, key: `search:${searchHit.key}` }
+        : focusedThread && focusedThread.fingerprint === content.data?.fingerprint
+          ? {
+              line: focusedThread.start,
+              side: focusedThread.side,
+              key: `thread:${focusedThread.id}:${threadVisit}`,
+            }
+          : null
+  useEffect(() => {
+    if (
+      !threadFocus ||
+      !remoteFocus ||
+      (remoteCurrent && remoteFocus.position_type === 'text') ||
+      collapsed
+    )
+      return
+    const frame = requestAnimationFrame(() => {
+      const element = Array.from(
+        root.current?.querySelectorAll<HTMLElement>('[data-discussion-id]') ?? [],
+      ).find((element) => element.dataset.discussionId === threadFocus)
+      const scroll = root.current?.closest('[data-testid="diff-scroll"]')?.firstElementChild
+      if (element && scroll)
+        scroll.scrollTop +=
+          element.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 24
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [threadFocus, threadVisit, remoteFocus, remoteCurrent, collapsed])
   const options = {
     theme: { dark: 'pierre-dark', light: 'pierre-light' } as const,
     themeType: theme,
@@ -172,13 +212,17 @@ export function ReviewFileCard({
     disableFileHeader: true,
     enableLineSelection: true,
     enableGutterUtility: true,
-    onGutterUtilityClick: setRange,
+    onGutterUtilityClick: (selection: SelectedLineRange) => {
+      setDestination(gitlab?.review?.aligned ? 'gitlab' : 'local')
+      setRange(selection)
+    },
     preferredHighlighter: 'shiki-js' as const,
     overflow: settings.wrapLines ? ('wrap' as const) : ('scroll' as const),
     onLineSelectionStart: setSelectingRange,
     onLineSelectionChange: setSelectingRange,
     onLineSelectionEnd: (selection: SelectedLineRange | null) => {
       setSelectingRange(null)
+      setDestination(gitlab?.review?.aligned ? 'gitlab' : 'local')
       setRange(selection)
     },
     unsafeCSS: codeCSS,
@@ -205,50 +249,150 @@ export function ReviewFileCard({
       })
     },
   }
-  const annotations: DiffLineAnnotation<LocalThread | 'draft'>[] = currentThreads.map((thread) => ({
-    side: thread.side,
-    lineNumber: thread.end,
-    metadata: thread,
-  }))
+  const annotations: DiffLineAnnotation<LocalThread | Discussion | 'composer'>[] =
+    currentThreads.map((thread) => ({
+      side: thread.side,
+      lineNumber: thread.end,
+      metadata: thread,
+    }))
   if (range && (!range.endSide || !range.side || range.endSide === range.side))
     annotations.push({
       side: range.side ?? 'additions',
       lineNumber: Math.max(range.start, range.end),
-      metadata: 'draft',
+      metadata: 'composer',
     })
-  const renderAnnotation = ({ metadata: thread }: { metadata: LocalThread | 'draft' }) =>
-    thread === 'draft' ? (
-      <form
+  for (const discussion of gitlab?.review?.discussions ?? []) {
+    const position = discussion.notes[0]?.position
+    const review = gitlab!.review!
+    if (
+      review.aligned &&
+      position &&
+      position.position_type === 'text' &&
+      Number.isInteger(position.new_line ?? position.old_line) &&
+      position.head_sha === review.pinned.head_sha &&
+      position.base_sha === review.pinned.base_sha &&
+      position.start_sha === review.pinned.start_sha &&
+      (position.new_line ? position.new_path : position.old_path) ===
+        (position.new_line ? path : (metadata?.oldPath ?? path))
+    )
+      annotations.push({
+        side: position.new_line ? 'additions' : 'deletions',
+        lineNumber: position.new_line ?? position.old_line!,
+        metadata: discussion,
+      })
+  }
+  const renderAnnotation = ({
+    metadata: thread,
+  }: {
+    metadata: LocalThread | Discussion | 'composer'
+  }) =>
+    thread === 'composer' ? (
+      <div
         data-testid="thread-composer"
         className="m-3 flex min-w-0 flex-col gap-2 border bg-surface p-3 font-sans text-[13px]/5 font-normal text-foreground"
-        onSubmit={save}
       >
-        <Textarea
-          autoFocus
-          aria-label={`Comment on ${path}`}
-          placeholder="Write a local review comment"
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          required
-          maxLength={100000}
-        />
-        <div>
-          <Button
-            type="submit"
-            variant="outline"
-            disabled={!body.trim() || mutation.isPending || !record}
-          >
-            Save thread
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => setRange(null)}>
-            Cancel
-          </Button>
-        </div>
+        {range &&
+          (() => {
+            const headerActions = gitlab?.review?.aligned && (
+              <div
+                className="flex items-center gap-1"
+                role="group"
+                aria-label="Comment destination"
+              >
+                <Button
+                  className="h-6 px-2 text-xs"
+                  variant={destination === 'gitlab' ? 'secondary' : 'ghost'}
+                  aria-pressed={destination === 'gitlab'}
+                  onClick={() => setDestination('gitlab')}
+                >
+                  GitLab
+                </Button>
+                <Button
+                  className="h-6 px-2 text-xs"
+                  variant={destination === 'local' ? 'secondary' : 'ghost'}
+                  aria-pressed={destination === 'local'}
+                  onClick={() => {
+                    setDestination('local')
+                  }}
+                >
+                  Local
+                </Button>
+              </div>
+            )
+            const side = range.side ?? 'additions'
+            const start = Math.min(range.start, range.end),
+              end = Math.max(range.start, range.end)
+            const contents =
+              side === 'additions'
+                ? content.data?.newFile?.contents
+                : content.data?.oldFile?.contents
+            const lines = contents?.split('\n') ?? []
+            if (lines.at(-1) === '') lines.pop()
+            const commentRange = { start, end, max: lines.length }
+            const onRangeChange = ({ start, end }: { start: number; end: number }) =>
+              setRange({ start, end, side })
+            const suggestion =
+              contents === undefined ||
+              (destination === 'gitlab' && gitlab?.review?.aligned && side !== 'additions')
+                ? undefined
+                : lines.slice(start - 1, end).join('\n')
+            return destination === 'gitlab' && gitlab?.review?.aligned ? (
+              <GitLabComposer
+                anchor={{ path, side, line: end, startLine: start }}
+                headerActions={headerActions}
+                range={commentRange}
+                onRangeChange={onRangeChange}
+                suggestion={suggestion}
+                value={body}
+                onChange={setBody}
+                onSaved={() => {
+                  setRange(null)
+                  setBody('')
+                }}
+                onCancel={() => {
+                  setRange(null)
+                  setBody('')
+                }}
+              />
+            ) : (
+              <>
+                <CommentComposer
+                  body={body}
+                  onChange={setBody}
+                  label={`Comment on ${path}`}
+                  busy={mutation.isPending || !record}
+                  headerActions={headerActions}
+                  range={commentRange}
+                  onRangeChange={onRangeChange}
+                  suggestion={suggestion}
+                  onPost={() => void save()}
+                  onCancel={() => {
+                    setRange(null)
+                    setBody('')
+                  }}
+                />
+              </>
+            )
+          })()}
         {mutation.error && <p role="alert">{mutation.error.message}</p>}
-      </form>
+      </div>
+    ) : 'notes' in thread ? (
+      <GitLabDiscussion discussion={thread} />
     ) : (
       <Thread
         thread={thread}
+        current={thread.fingerprint === content.data?.fingerprint}
+        suggestion={
+          thread.fingerprint === content.data?.fingerprint
+            ? (thread.side === 'additions'
+                ? content.data?.newFile?.contents
+                : content.data?.oldFile?.contents
+              )
+                ?.split('\n')
+                .slice(thread.start - 1, thread.end)
+                .join('\n')
+            : undefined
+        }
         mutate={(action) => mutation.mutateAsync(action)}
         pending={mutation.isPending}
       />
@@ -366,6 +510,28 @@ export function ReviewFileCard({
       )}
       {!collapsed && (
         <>
+          {gitlab?.review?.discussions
+            .filter((discussion) => {
+              const position = discussion.notes[0]?.position
+              if (
+                !position ||
+                (position.new_path !== path && position.old_path !== (metadata?.oldPath ?? path))
+              )
+                return false
+              return (
+                position.position_type === 'file' ||
+                !Number.isInteger(position.new_line ?? position.old_line) ||
+                !gitlab.review!.aligned ||
+                position.head_sha !== gitlab.review!.pinned.head_sha ||
+                position.base_sha !== gitlab.review!.pinned.base_sha ||
+                position.start_sha !== gitlab.review!.pinned.start_sha
+              )
+            })
+            .map((discussion) => (
+              <div className="mx-3" key={discussion.id}>
+                <GitLabDiscussion discussion={discussion} />
+              </div>
+            ))}
           {content.isPending && (
             <p className="flex flex-wrap items-center gap-3 p-4">
               {visible ? 'Loading file…' : 'Scroll to load file'}
@@ -395,7 +561,7 @@ export function ReviewFileCard({
             </p>
           )}
           {diff && (
-            <FileDiff<LocalThread | 'draft'>
+            <FileDiff<LocalThread | Discussion | 'composer'>
               fileDiff={diff}
               options={options}
               selectedLines={selectedLines}
@@ -404,7 +570,7 @@ export function ReviewFileCard({
             />
           )}
           {!metadata && content.data?.newFile && (
-            <File<LocalThread | 'draft'>
+            <File<LocalThread | Discussion | 'composer'>
               file={content.data.newFile}
               options={options}
               selectedLines={selectedLines}

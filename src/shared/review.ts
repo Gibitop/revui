@@ -12,6 +12,7 @@ export type ReviewFile = {
   newOid: string
 }
 export type Snapshot = {
+  branches?: { source: string; target: string }
   id: string
   key: string
   repository: string
@@ -54,6 +55,7 @@ export type ReviewAction =
       body: string
     }
   | { kind: 'delete-comment'; thread: string; message: string }
+  | { kind: 'edit-comment'; thread: string; message: string; body: string }
   | { kind: 'reply'; thread: string; body: string }
   | { kind: 'resolve'; thread: string; resolved: boolean }
   | { kind: 'reviewed'; path: string; reviewed: boolean }

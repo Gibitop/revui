@@ -1,3 +1,4 @@
+import type { GitLabRequest, GitLabResult } from './gitlab'
 import type { Workspace, WorkspaceListing, ToolCommands, IDE } from './workspace'
 import type {
   RevisionSuggestion,
@@ -34,6 +35,7 @@ export type Bootstrap = {
 }
 
 export type DesktopAPI = {
+  gitlab: (request: GitLabRequest) => Promise<GitLabResult>
   findWorkspace: (snapshot: string) => Promise<Workspace | null>
   initializeWorkspace: (
     snapshot: string,
@@ -57,6 +59,7 @@ export type DesktopAPI = {
   ) => Promise<void>
   onScriptOutput: (listener: (data: string) => void) => () => void
 
+  openWebLink: (url: string) => Promise<void>
   copyRelativePath: (path: string) => Promise<void>
   getRepositoryRefs: (repository: string) => Promise<RevisionSuggestion[]>
   searchReviewContents: (
@@ -85,6 +88,7 @@ export type DesktopAPI = {
 }
 
 export const channels = {
+  gitlab: 'gitlab:request',
   acknowledgeRestoration: 'workspace:acknowledge',
   cancelWorkspaceScript: 'workspace:cancel-script',
   findWorkspace: 'workspace:find',
@@ -99,6 +103,7 @@ export const channels = {
   openWorkspaceIDE: 'workspace:ide',
   scriptOutput: 'workspace:output',
 
+  openWebLink: 'links:open-web',
   copyRelativePath: 'clipboard:relative-path',
   getRepositoryRefs: 'repository:refs',
   searchReviewContents: 'review:search',

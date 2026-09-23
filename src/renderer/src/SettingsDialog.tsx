@@ -1,3 +1,5 @@
+import gitlabLogo from './assets/gitlab/gitlab.svg'
+import { GitLabSettings } from './GitLab'
 import { WorktreeSettings } from './WorktreeSettings'
 import { useState } from 'react'
 import { Tabs } from '@base-ui/react/tabs'
@@ -31,7 +33,7 @@ export function SettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="h-[min(620px,calc(100dvh-64px))] max-w-3xl overflow-hidden p-0">
         <DialogDescription className="sr-only">
-          Manage appearance, workspace preferences, and worktrees.
+          Manage appearance, GitLab connections, workspace preferences, and worktrees.
         </DialogDescription>
         <Tabs.Root defaultValue="appearance" orientation="vertical" className="flex h-full min-h-0">
           <aside className="flex w-44 shrink-0 flex-col border-r bg-muted/30 p-3">
@@ -43,6 +45,17 @@ export function SettingsDialog({
               >
                 <Paintbrush className="size-4" aria-hidden="true" />
                 Appearance
+              </Tabs.Tab>
+              <Tabs.Tab
+                value="gitlab"
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring data-active:bg-accent data-active:font-semibold data-active:text-foreground"
+              >
+                <span
+                  aria-hidden="true"
+                  className="size-4 shrink-0 bg-current"
+                  style={{ mask: `url("${gitlabLogo}") center / contain no-repeat` }}
+                />
+                GitLab
               </Tabs.Tab>
               <Tabs.Tab
                 value="workspace"
@@ -61,6 +74,9 @@ export function SettingsDialog({
             </Tabs.List>
           </aside>
           <div className="min-w-0 flex-1 overflow-y-auto">
+            <Tabs.Panel value="gitlab" className="h-full outline-none">
+              <GitLabSettings />
+            </Tabs.Panel>
             <Tabs.Panel
               value="appearance"
               keepMounted

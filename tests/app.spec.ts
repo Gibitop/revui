@@ -310,10 +310,39 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await page.getByRole('button', { name: 'Close settings' }).click()
     await expect(page.getByRole('article')).toHaveCount(1)
     await file.locator('[data-column-number="1"][data-line-type="change-addition"]').first().click()
+    const threadComposer = file.getByTestId('thread-composer')
+    await expect(threadComposer.getByRole('button', { name: 'Decrease start line' })).toBeDisabled()
+    await threadComposer.getByRole('button', { name: 'Insert suggestion' }).click()
+    await expect(page.getByLabel('Comment on example.ts')).toHaveValue(
+      /```suggestion:-0\+0\n.+\n```/,
+    )
     await page.getByLabel('Comment on example.ts').fill('Please **explain** this value.')
-    await page.getByRole('button', { name: 'Save thread', exact: true }).click()
+    await expect(
+      threadComposer.getByRole('button', { name: 'Save draft', exact: true }),
+    ).toHaveCount(0)
+    await page.getByRole('button', { name: 'Post now', exact: true }).click()
     await expect(file.getByText('Please explain this value.')).toBeVisible()
     await expect(file.locator('.markdown strong')).toHaveText('explain')
+    const comment = file.getByTestId('thread-message').first()
+    const editBounds = await comment
+      .getByRole('button', { name: 'Edit', exact: true })
+      .boundingBox()
+    const resolveBounds = await comment
+      .getByRole('button', { name: 'Resolve', exact: true })
+      .boundingBox()
+    expect(editBounds!.x).toBeLessThan(resolveBounds!.x)
+    expect(editBounds!.y).toBe(resolveBounds!.y)
+    await comment.getByRole('button', { name: 'Edit', exact: true }).click()
+    await comment.getByRole('button', { name: 'Insert suggestion' }).click()
+    await expect(comment.getByRole('textbox', { name: 'Edit local comment' })).toHaveValue(
+      /```suggestion:-0\+0\n.+\n```$/,
+    )
+
+    await comment
+      .getByRole('textbox', { name: 'Edit local comment' })
+      .fill('Please **explain** this value. Edited.')
+    await comment.getByRole('button', { name: 'Save edit', exact: true }).click()
+    await expect(comment).toContainText('Edited.')
     await file.getByRole('checkbox', { name: 'Reviewed example.ts' }).check()
     await expect(file.getByRole('button', { name: 'Expand example.ts' })).toHaveAttribute(
       'aria-expanded',
@@ -325,13 +354,21 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await expect(file.locator('[data-testid="comment-date"]')).toHaveCount(1)
     await expect(file.locator('[data-testid="comment-date"]')).toContainText(/just now|ago/)
     await expect(file.locator('[data-testid="thread-dates"]')).toHaveCount(0)
+    await file
+      .locator('summary')
+      .filter({ hasText: /^Reply$/ })
+      .click()
     await file.getByLabel('Reply', { exact: true }).fill('It represents the new version.')
-    await file.getByRole('button', { name: 'Reply', exact: true }).click()
+    await file.getByRole('button', { name: 'Post now', exact: true }).click()
     await expect(file.getByText('It represents the new version.')).toBeVisible()
     await file
       .locator('[data-testid="thread-message"]')
       .filter({ hasText: 'It represents the new version.' })
       .getByRole('button', { name: 'Delete comment' })
+      .click()
+    await page
+      .getByRole('dialog', { name: 'Delete comment?' })
+      .getByRole('button', { name: 'Delete comment', exact: true })
       .click()
     await expect(file.getByText('It represents the new version.')).toHaveCount(0)
     await file.getByRole('button', { name: 'Resolve', exact: true }).click()

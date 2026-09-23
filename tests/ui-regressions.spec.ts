@@ -157,7 +157,7 @@ test('tree errors recover; shadcn controls and background reads preserve the rev
       (globalThis as unknown as { finishRecent: () => void }).finishRecent(),
     )
     await expect(draft).toHaveValue('Keep this draft')
-    await page.getByRole('button', { name: 'Save thread', exact: true }).click()
+    await page.getByRole('button', { name: 'Post now', exact: true }).click()
     await expect(file.getByText('Keep this draft')).toBeVisible()
     for (const [width, height] of [
       [960, 640],
