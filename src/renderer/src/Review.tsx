@@ -84,7 +84,6 @@ function ReviewSession({
   const [gitlabReview, setGitlabReview] = useState<GitLabReview>()
   const [initialComparison] = useState(initial)
   const [controls, setControls] = useState({ comparison: initial, version: 0 })
-  const [sidebarWidth, setSidebarWidth] = useState(settings.sidebarWidth)
   const [searchHit, setSearchHit] = useState<(ContentMatch & { key: number }) | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const contentSearchRef = useRef<HTMLInputElement>(null)
@@ -468,8 +467,6 @@ function ReviewSession({
           <ReviewSidebar
             snapshot={snapshot.data}
             settings={settings}
-            sidebarWidth={sidebarWidth}
-            setSidebarWidth={setSidebarWidth}
             preferences={preferences}
             filter={filter}
             setFilter={setFilter}

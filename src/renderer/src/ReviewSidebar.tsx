@@ -1,6 +1,6 @@
 import { Input } from '@/components/ui/input'
 import { Menu } from '@base-ui/react/menu'
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { memo, useEffect, useRef, useState, type RefObject } from 'react'
 import { preparePresortedFileTreeInput, type GitStatus } from '@pierre/trees'
 import { FileTree, useFileTree } from '@pierre/trees/react'
 import {
@@ -30,8 +30,6 @@ export const gitStatuses: Record<string, GitStatus> = {
 export function ReviewSidebar({
   snapshot,
   settings,
-  sidebarWidth,
-  setSidebarWidth,
   preferences,
   filter,
   setFilter,
@@ -54,8 +52,6 @@ export function ReviewSidebar({
   onShowAll: () => void
   snapshot?: Snapshot
   settings: Settings
-  sidebarWidth: number
-  setSidebarWidth: (width: number) => void
   preferences: (patch: PreferencesPatch) => void
   filter: string
   setFilter: (filter: string) => void
@@ -68,6 +64,8 @@ export function ReviewSidebar({
   select: (path: string) => void
   theme: 'light' | 'dark'
 }) {
+  // Keep drag updates local so resizing does not rerender every diff card.
+  const [sidebarWidth, setSidebarWidth] = useState(settings.sidebarWidth)
   return (
     <>
       <aside
@@ -234,7 +232,7 @@ export function ReviewSidebar({
   )
 }
 
-function ReviewTree({
+const ReviewTree = memo(function ReviewTree({
   files,
   paths,
   selected,
@@ -332,4 +330,4 @@ function ReviewTree({
       style={{ colorScheme: theme }}
     />
   )
-}
+})
