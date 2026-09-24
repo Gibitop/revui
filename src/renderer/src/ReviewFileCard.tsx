@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label'
 import { CommentComposer } from './CommentComposer'
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { File, FileDiff, type FileDiffMetadata } from '@pierre/diffs/react'
+import { File, FileDiff, useVirtualizer, type FileDiffMetadata } from '@pierre/diffs/react'
 import {
   VirtualizedFile,
   VirtualizedFileDiff,
@@ -55,6 +55,7 @@ export function ReviewFileCard({
   searchHit: (ContentMatch & { key: number }) | null
 }) {
   const gitlab = useGitLab()
+  const virtualizer = useVirtualizer()
   const root = useRef<HTMLElement>(null)
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
@@ -83,11 +84,12 @@ export function ReviewFileCard({
           observer.disconnect()
         }
       },
-      { rootMargin: '600px' },
+      // Expand the review pane's viewport; the window's margin is clipped by the pane.
+      { root: virtualizer?.getRoot(), rootMargin: '600px 0px' },
     )
     if (root.current) observer.observe(root.current)
     return () => observer.disconnect()
-  }, [])
+  }, [virtualizer])
   const content = useQuery({
     queryKey: ['review-file', snapshot.id, path, force],
     queryFn: () => window.desktop.loadReviewFile(snapshot.id, path, force),

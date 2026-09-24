@@ -223,6 +223,30 @@ test('file-tree navigation stays aligned as distant diffs load and yields to man
       .click()
     const last = page.getByRole('article', { name: paths.at(-1)!, exact: true })
     await expect(last).toContainText('Scroll to load file')
+    const nextUnloadedPath = await page
+      .getByRole('article')
+      .filter({ hasText: 'Scroll to load file' })
+      .first()
+      .getAttribute('aria-label')
+    const nextUnloaded = page.getByRole('article', { name: nextUnloadedPath!, exact: true })
+    await nextUnloaded.evaluate((element) => {
+      const pane = document.querySelector('[data-testid="diff-scroll"] > div')!
+      pane.scrollTop +=
+        element.getBoundingClientRect().top - pane.getBoundingClientRect().bottom - 300
+    })
+    await expect(nextUnloaded.getByRole('checkbox')).toBeEnabled()
+    expect(
+      await nextUnloaded.evaluate((element) => {
+        const pane = document.querySelector('[data-testid="diff-scroll"] > div')!
+        return element.getBoundingClientRect().top > pane.getBoundingClientRect().bottom
+      }),
+    ).toBe(true)
+    await page
+      .getByTestId('diff-scroll')
+      .locator(':scope > div')
+      .evaluate((pane) => {
+        pane.scrollTop = 0
+      })
     const selectedItems = page.getByRole('treeitem', { selected: true })
     await expect(selectedItems).toHaveCount(1)
     for (const [button, path] of [
