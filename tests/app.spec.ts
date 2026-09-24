@@ -65,7 +65,7 @@ test('desktop startup, repository picker, IPC isolation, preferences, and restar
       .getByRole('button', { name: 'Open folder…', exact: true })
       .click()
     await expect(
-      page.getByRole('button', { name: new RegExp(basename(repository)) }).first(),
+      page.getByRole('button', { name: new RegExp(`^${basename(repository)}`) }).first(),
     ).toBeVisible()
     await page.screenshot({
       path: testInfo.outputPath('repository-dark.png'),
@@ -98,8 +98,17 @@ test('desktop startup, repository picker, IPC isolation, preferences, and restar
     await expect(picker.getByRole('status')).toContainText('No matching repositories')
     await search.fill(basename(repository).toUpperCase())
     await expect(
-      picker.getByRole('button', { name: new RegExp(basename(repository)) }),
+      picker.getByRole('button', { name: new RegExp(`^${basename(repository)}`) }),
     ).toBeVisible()
+    await picker
+      .getByRole('button', { name: `Open merge request in ${basename(repository)}` })
+      .click()
+    const mrInput = picker.getByRole('textbox', { name: 'Merge request ID or link' })
+    await expect(mrInput).toBeFocused()
+    await mrInput.fill('!7')
+    await mrInput.press('Enter')
+    await expect(picker.getByRole('alert')).toContainText('Configure GitLab in Settings first.')
+    await expect(mrInput).toHaveValue('!7')
     await search.press('Escape')
     await page.keyboard.press('ControlOrMeta+o')
     await expect(search).toHaveValue('')
@@ -107,7 +116,7 @@ test('desktop startup, repository picker, IPC isolation, preferences, and restar
     await search.press('Enter')
     await expect(picker).toBeHidden()
     await expect(
-      page.getByRole('button', { name: new RegExp(basename(repository)) }).first(),
+      page.getByRole('button', { name: new RegExp(`^${basename(repository)}`) }).first(),
     ).toBeVisible()
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(page.getByRole('radio', { name: 'Dark', exact: true })).toHaveAttribute(
@@ -269,7 +278,7 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await expect(page.getByRole('dialog', { name: 'Open repository' })).toBeVisible()
     await page
       .getByRole('dialog')
-      .getByRole('button', { name: new RegExp(basename(repository)) })
+      .getByRole('button', { name: new RegExp(`^${basename(repository)}`) })
       .click()
     await expect.poll(() => file.locator('[data-line] span[style]').count()).toBeGreaterThan(0)
     await page.getByRole('button', { name: 'Filter files', exact: true }).click()
@@ -453,7 +462,10 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await application.close()
     application = await electron.launch({ args: ['.'], env })
     page = await application.firstWindow()
-    await page.getByRole('region', { name: 'Recent repositories' }).getByRole('button').click()
+    await page
+      .getByRole('region', { name: 'Recent repositories' })
+      .getByRole('button', { name: new RegExp(`^${basename(repository)}`) })
+      .click()
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(page.getByRole('radio', { name: 'Unified', exact: true })).toHaveAttribute(
       'aria-checked',

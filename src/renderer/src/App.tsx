@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipProvider } from '@/components/ui/tooltip'
 import { SettingsDialog } from './SettingsDialog'
 import { RepositoryDialog, RepositoryChoices } from './RepositoryDialog'
+import type { Comparison } from '../../shared/review'
 import { Review } from './Review'
 
 export function App() {
@@ -23,6 +24,9 @@ export function App() {
     queryFn: () => window.desktop.getBootstrap(),
   })
   const [repository, setRepository] = useState<Repository | null>(null)
+  const [initialMr, setInitialMr] = useState<number>()
+  const [initialComparison, setInitialComparison] = useState<Comparison>()
+  const [repositoryVersion, setRepositoryVersion] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchToolbar, setSearchToolbar] = useState<HTMLDivElement | null>(null)
   const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null)
@@ -31,13 +35,26 @@ export function App() {
     scope: { id: 'preferences' },
   })
   const openRepository = useMutation({
-    mutationFn: async (path?: string) => {
+    mutationFn: async (selection?: { path?: string; mr?: string }) => {
+      const { path, mr } = selection ?? {}
+      const mergeRequest =
+        path && mr
+          ? await window.desktop.gitlab({ kind: 'open-mr', repository: path, input: mr })
+          : undefined
       if (repository && !(await window.desktop.leaveWorkspace(repository.path))) return null
-      return path ? window.desktop.reopenRepository(path) : window.desktop.chooseRepository()
+      const opened = path
+        ? await window.desktop.reopenRepository(path)
+        : await window.desktop.chooseRepository()
+      return opened
+        ? { repository: opened, comparison: mergeRequest?.comparison, iid: mergeRequest?.iid }
+        : null
     },
     onSuccess: (result) => {
       if (result) {
-        setRepository(result)
+        setRepository(result.repository)
+        setInitialComparison(result.comparison)
+        setInitialMr(result.iid)
+        setRepositoryVersion((version) => version + 1)
         setRepositoriesOpen(false)
       }
     },
@@ -177,7 +194,9 @@ export function App() {
             <Review
               toolbar={toolbar}
               searchToolbar={searchToolbar}
-              key={repository.path}
+              key={`${repository.path}:${repositoryVersion}`}
+              initialComparison={initialComparison}
+              initialMr={initialMr}
               repository={repository}
               settings={settings}
               theme={settings.theme === 'system' ? data.systemTheme : settings.theme}
@@ -224,7 +243,7 @@ export function App() {
                       <RepositoryChoices
                         paths={recentRepositories}
                         pending={openRepository.isPending}
-                        onSelect={(path) => openRepository.mutate(path)}
+                        onSelect={(path, mr) => openRepository.mutate({ path, mr })}
                       />
                     </div>
                   </section>
@@ -240,7 +259,7 @@ export function App() {
         onOpenChange={setRepositoriesOpen}
         paths={settings.recentRepositories}
         pending={openRepository.isPending}
-        onSelect={(path) => openRepository.mutate(path)}
+        onSelect={(path, mr) => openRepository.mutate({ path, mr })}
         error={openRepository.error}
       />
       <SettingsDialog

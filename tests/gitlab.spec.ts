@@ -32,6 +32,7 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
   await writeFile(join(repository, 'file.ts'), 'export const value = 2\n')
   git('commit', '-am', 'change')
   const head = git('rev-parse', 'HEAD')
+  let mrState = 'opened'
   let exists = false
   let delay = 0
   let searches = 0
@@ -39,6 +40,7 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
   let failWrite = false
   let failBody = ''
   const replies = new Map<string, { id: number; body: string }[]>()
+  let ownCommit = false
   let approved = false
   let currentHead = head
   const comments: string[] = []
@@ -81,13 +83,13 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
       author: { id: 1, name: 'Reviewer', avatar_url: `${baseURL}/avatar.png` },
       reviewers: [{ id: 1, name: 'Reviewer', avatar_url: `${baseURL}/avatar.png` }],
       labels: ['ready'],
-      state: 'opened',
+      state: mrState,
       draft: false,
       head_pipeline: { status: 'success', web_url: `${baseURL}/group/repo/-/pipelines/42` },
       web_url: `${baseURL}/group/repo/-/merge_requests/3`,
     }
     let data: unknown = mr
-    if (url.pathname.endsWith('/user')) data = { id: 1 }
+    if (url.pathname.endsWith('/user')) data = { id: 1, email: 'reviewer@example.com' }
     else if (url.pathname.endsWith('/environments'))
       data = [
         { id: 1, name: 'review/feature', external_url: `${baseURL}/preview`, state: 'available' },
@@ -100,8 +102,17 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
         state: 'available',
         last_deployment: { ref: 'feature', sha: head, status: 'success' },
       }
+    else if (url.pathname.endsWith('/user/emails')) data = []
+    else if (url.pathname.endsWith('/commits'))
+      data = [
+        {
+          author_email: ownCommit ? 'reviewer@example.com' : 'author@example.com',
+          committer_email: 'author@example.com',
+        },
+      ]
     else if (url.pathname.endsWith('/version')) data = { version: '18.0.0-fixture' }
-    else if (decodeURIComponent(url.pathname).endsWith('/projects/group/repo')) data = { id: 1 }
+    else if (decodeURIComponent(url.pathname).endsWith('/projects/group/repo'))
+      data = { id: 1, email: 'reviewer@example.com' }
     else if (url.pathname.endsWith('/merge_requests')) {
       searches++
       if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
@@ -550,6 +561,37 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
         ),
       ),
     ).toBe(true)
+    await overlay.getByRole('button', { name: 'Close merge request' }).click()
+    approved = false
+    mrState = 'merged'
+    exists = false
+    const historicalSearches = searches
+    await page.keyboard.press('ControlOrMeta+o')
+    const picker = page.getByRole('dialog', { name: 'Open repository' })
+    await picker.getByRole('button', { name: 'Open merge request in repo', exact: true }).click()
+    await picker
+      .getByRole('textbox', { name: 'Merge request ID or link' })
+      .fill(`${baseURL}/group/repo/-/merge_requests/3/diffs`)
+    await picker.getByRole('button', { name: 'Open MR', exact: true }).click()
+    await expect(picker).toBeHidden()
+    await expect(page.getByRole('combobox', { name: 'Old', exact: true })).toHaveValue(base)
+    await expect(page.getByRole('combobox', { name: 'New', exact: true })).toHaveValue(head)
+    await expect(button).toHaveAttribute('aria-busy', 'false')
+    await button.click()
+    await expect(overlay).toBeVisible()
+    await expect(overlay).toContainText('Review description')
+    expect(searches).toBe(historicalSearches)
+    await expect(overlay.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled()
+    await expect(overlay).toContainText('Only open merge requests can be approved.')
+    mrState = 'opened'
+    ownCommit = true
+    await overlay.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect(overlay.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled()
+    await expect(overlay).toContainText('your own commits')
+    ownCommit = false
+    await overlay.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await expect(overlay.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled()
+
     expect(errors).toEqual([])
   } finally {
     await application.close()

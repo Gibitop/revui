@@ -42,6 +42,7 @@ import type {
 } from '../../shared/gitlab'
 import type { Comparison, Snapshot, LocalThread, ReviewAction } from '../../shared/review'
 import { Button } from '@/components/ui/button'
+import { Tooltip } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -372,6 +373,7 @@ export function GitLabSettings() {
 }
 
 export function GitLabProvider({
+  iid,
   localThreads = [],
   snapshot,
   children,
@@ -379,6 +381,7 @@ export function GitLabProvider({
   onReviewChange,
   onNavigateThread,
 }: {
+  iid?: number
   snapshot?: Snapshot
   localThreads?: LocalThread[]
   children: ReactNode
@@ -430,7 +433,7 @@ export function GitLabProvider({
     setMissing(false)
     clearTimeout(timer.current)
     try {
-      const result = await window.desktop.gitlab({ kind: 'lookup', snapshot: snapshot.id })
+      const result = await window.desktop.gitlab({ kind: 'lookup', snapshot: snapshot.id, iid })
       if (generation.current !== current) return
       setMatches(result.matches ?? [])
       setReview(undefined)
@@ -483,7 +486,7 @@ export function GitLabProvider({
     }
     // Snapshot and configuration changes restart lookup without remounting the review UI.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [snapshot?.id])
+  }, [snapshot?.id, iid])
   useEffect(() => {
     onReviewChange(review)
   }, [review, onReviewChange])
@@ -660,6 +663,17 @@ export function GitLabProvider({
   const needsRevision = !!review && !review.aligned
   const approvedByMe =
     review?.approvals?.approved_by.some(({ user }) => user.id === review.userId) ?? false
+  const approvalDisabledReason = busy
+    ? 'Wait for the current action to finish.'
+    : publishing
+      ? 'Wait for comments to finish publishing.'
+      : !approvedByMe && review?.approvalBlockedReason
+        ? review.approvalBlockedReason
+        : !review?.approvals
+          ? review?.approvalError || 'Approval information is unavailable. Refresh the MR to retry.'
+          : needsRevision && !approvedByMe
+            ? 'Open and review the current MR revision before approving.'
+            : ''
   const discussions =
     review?.discussions.filter((discussion) => {
       const first = discussion.notes[0]
@@ -764,29 +778,39 @@ export function GitLabProvider({
                         >
                           {copiedLink === review.mr.web_url ? <Check /> : <Copy />}
                         </Button>
-                        <Button
-                          variant={approvedByMe ? 'outline' : 'default'}
-                          className="shrink-0"
-                          disabled={
-                            busy ||
-                            publishing ||
-                            !review.approvals ||
-                            (needsRevision && !approvedByMe)
-                          }
-                          onClick={() =>
-                            void act({
-                              kind: 'approve',
-                              session: review.session,
-                              approved: !approvedByMe,
-                            })
+                        <Tooltip
+                          label={
+                            approvalDisabledReason ||
+                            (approvedByMe ? 'Remove your approval' : 'Approve this merge request')
                           }
                         >
-                          <Check />
-                          {approvedByMe ? 'Unapprove' : 'Approve'}
-                        </Button>
+                          <span
+                            className="inline-flex shrink-0"
+                            tabIndex={approvalDisabledReason ? 0 : undefined}
+                          >
+                            <Button
+                              variant="ghost"
+                              className="shrink-0"
+                              disabled={!!approvalDisabledReason}
+                              onClick={() =>
+                                void act({
+                                  kind: 'approve',
+                                  session: review.session,
+                                  approved: !approvedByMe,
+                                })
+                              }
+                            >
+                              <Check />
+                              {approvedByMe ? 'Unapprove' : 'Approve'}
+                            </Button>
+                          </span>
+                        </Tooltip>
                       </div>
                     )}
                   </div>
+                  {review?.approvalBlockedReason && !approvedByMe && (
+                    <p className="mb-3 text-muted-foreground">{review.approvalBlockedReason}</p>
+                  )}
                   <DialogTitle className="pr-8 font-semibold wrap-anywhere">
                     {review ? (
                       <>

@@ -57,6 +57,14 @@ async function fixture() {
     diff_refs: { ...refs },
     head_pipeline: null,
   }
+  const user = {
+    id: 4,
+    email: 'reviewer@example.com',
+    public_email: '',
+    commit_email: 'private@example.com',
+  }
+  const emails = [{ email: 'alias@example.com', confirmed_at: '2026-01-01' }]
+  const commits = [{ author_email: 'someone@example.com', committer_email: 'someone@example.com' }]
   const environments: {
     id: number
     name: string
@@ -96,7 +104,9 @@ async function fixture() {
       if (posts === failAt) throw new Error('lost response')
       value = { id: `discussion-${posts}` }
     } else if (method !== 'GET') value = {}
-    else if (path === 'user') value = { id: 4 }
+    else if (path === 'user') value = user
+    else if (path === 'user/emails') value = emails
+    else if (path.endsWith('/commits')) value = commits
     else if (path.endsWith('/environments')) value = environments
     else if (/\/environments\/\d+$/.test(path))
       value = environments.find((environment) => environment.id === Number(path.split('/').at(-1)))
@@ -190,6 +200,9 @@ async function fixture() {
     return (await target.handle({ kind: 'select', snapshot: snapshot.id, iid: 7 })).review!
   }
   return {
+    commits,
+    emails,
+    user,
     service,
     environments,
     opened,
@@ -559,6 +572,76 @@ describe('GitLab review', () => {
     )
   })
 
+  it.each(['closed', 'merged'])(
+    'rejects approval when an MR becomes %s after loading',
+    async (state) => {
+      const f = await fixture()
+      const review = await f.select()
+      expect(review.approvalBlockedReason).toBeUndefined()
+      f.mr.state = state
+      await expect(
+        f.service.handle({ kind: 'approve', session: review.session, approved: true }),
+      ).rejects.toThrow('Only open merge requests')
+      expect(
+        f.requests.filter(
+          ({ url, method }) => method === 'POST' && url.pathname.endsWith('/approve'),
+        ),
+      ).toHaveLength(0)
+      expect(
+        (await f.service.handle({ kind: 'refresh', session: review.session })).review
+          ?.approvalBlockedReason,
+      ).toContain('Only open')
+    },
+  )
+
+  it.each([
+    ['author_email', ' REVIEWER@EXAMPLE.COM '],
+    ['author_email', 'alias@example.com'],
+    ['committer_email', 'private@example.com'],
+  ] as const)('blocks own commits matched by %s and account email %s', async (field, email) => {
+    const f = await fixture()
+    const review = await f.select()
+    f.commits[0][field] = email
+    await expect(
+      f.service.handle({ kind: 'approve', session: review.session, approved: true }),
+    ).rejects.toThrow('your own commits')
+    expect(
+      f.requests.filter(
+        ({ url, method }) => method === 'POST' && url.pathname.endsWith('/approve'),
+      ),
+    ).toHaveLength(0)
+    const refreshed = await f.service.handle({ kind: 'refresh', session: review.session })
+    expect(refreshed.review?.approvalBlockedReason).toContain('your own commits')
+    await f.service.handle({ kind: 'approve', session: review.session, approved: false })
+    expect(
+      f.requests.some(
+        ({ url, method }) => method === 'POST' && url.pathname.endsWith('/unapprove'),
+      ),
+    ).toBe(true)
+    f.commits[0][field] = 'someone@example.com'
+    expect(
+      (await f.service.handle({ kind: 'refresh', session: review.session })).review
+        ?.approvalBlockedReason,
+    ).toBeUndefined()
+  })
+
+  it.each(['/commits', 'user/emails'])(
+    'blocks approval if authorship cannot be checked using %s',
+    async (endpoint) => {
+      const f = await fixture()
+      const review = await f.select()
+      f.deny(endpoint)
+      await expect(
+        f.service.handle({ kind: 'approve', session: review.session, approved: true }),
+      ).rejects.toThrow('Could not verify commit authorship')
+      expect(
+        f.requests.filter(
+          ({ url, method }) => method === 'POST' && url.pathname.endsWith('/approve'),
+        ),
+      ).toHaveLength(0)
+    },
+  )
+
   it('guards approval SHA, editing ownership, stale sessions and permissions', async () => {
     const f = await fixture(),
       review = await f.select()
@@ -610,4 +693,176 @@ it('surfaces permission failures separately from missing MRs and degrades unavai
   await expect(
     f.service.handle({ kind: 'comment', session: review.session, body: 'keep on failure' }),
   ).rejects.toThrow('permission denied')
+})
+
+describe('open MR from a recent repository', () => {
+  it('fetches MR refs and returns target/source fields in merge-base mode for IDs and links', async () => {
+    const { service, snapshot, mr } = await fixture()
+    const git = (...args: string[]) =>
+      promisify(execFile)('git', ['-C', snapshot.repository, ...args])
+    await git(
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.com',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'initial',
+    )
+    await git('branch', '-f', 'main', 'HEAD')
+    await git('update-ref', 'refs/merge-requests/7/head', 'HEAD')
+    await git(
+      'config',
+      `url.${snapshot.repository}.insteadOf`,
+      'git@gitlab.example.com:group/nested/repo.git',
+    )
+    for (const input of [
+      '7',
+      '!7',
+      'https://gitlab.example.com/group/nested/repo/-/merge_requests/7#note_1',
+      'https://gitlab.example.com/group/nested/repo/-/merge_requests/7/diffs',
+      'https://gitlab.example.com/group/nested/repo/-/merge_requests/7/diffs?diff_id=123#note_1',
+      'https://gitlab.example.com/group/nested/repo/-/merge_requests/7/commits',
+      'https://gitlab.example.com/group/nested/repo/-/merge_requests/7/pipelines',
+    ]) {
+      const result = await service.handle({
+        kind: 'open-mr',
+        repository: snapshot.repository,
+        input,
+      })
+      expect(result.comparison).toEqual({
+        base: { kind: 'commit', ref: 'origin/main' },
+        target: { kind: 'commit', ref: 'origin/feature/a' },
+        mode: 'merge-base',
+      })
+      expect((await git('rev-parse', 'origin/feature/a')).stdout).toBe(
+        (await git('rev-parse', 'HEAD')).stdout,
+      )
+    }
+    mr.source_project_id = 99
+    const fork = await service.handle({
+      kind: 'open-mr',
+      repository: snapshot.repository,
+      input: '7',
+    })
+    expect(fork.comparison?.target).toEqual({
+      kind: 'commit',
+      ref: 'refs/revui/merge-requests/7/head',
+    })
+    expect((await git('rev-parse', 'refs/revui/merge-requests/7/head')).stdout).toBe(
+      (await git('rev-parse', 'HEAD')).stdout,
+    )
+  })
+
+  it.each(['merged', 'closed', 'opened'])(
+    'opens a %s MR without its remote head ref using saved diff commits',
+    async (state) => {
+      const { service, snapshot, mr } = await fixture()
+      const git = (...args: string[]) =>
+        promisify(execFile)('git', [
+          '-C',
+          snapshot.repository,
+          '-c',
+          'user.name=Test',
+          '-c',
+          'user.email=test@example.com',
+          '-c',
+          'commit.gpgsign=false',
+          ...args,
+        ])
+      await git('checkout', '-b', 'main')
+      await writeFile(join(snapshot.repository, 'change.txt'), 'before\n')
+      await git('add', '.')
+      await git('commit', '-m', 'base')
+      const base = (await git('rev-parse', 'HEAD')).stdout.trim()
+      const local = await mkdtemp(join(tmpdir(), 'revui-old-mr-'))
+      dirs.push(local)
+      await promisify(execFile)('git', ['clone', '--single-branch', snapshot.repository, local])
+      await writeFile(join(snapshot.repository, 'change.txt'), 'after\n')
+      await git('commit', '-am', 'merged change')
+      const head = (await git('rev-parse', 'HEAD')).stdout.trim()
+      const localGit = (...args: string[]) => promisify(execFile)('git', ['-C', local, ...args])
+      await localGit('remote', 'set-url', 'origin', 'git@gitlab.example.com:group/nested/repo.git')
+      await localGit(
+        'config',
+        `url.${snapshot.repository}.insteadOf`,
+        'git@gitlab.example.com:group/nested/repo.git',
+      )
+      mr.state = state
+      mr.diff_refs = { base_sha: base, start_sha: base, head_sha: head }
+      await expect(localGit('cat-file', '-e', `${head}^{commit}`)).rejects.toThrow()
+      const result = await service.handle({ kind: 'open-mr', repository: local, input: '7' })
+      expect(result.comparison).toEqual({
+        base: { kind: 'commit', ref: base },
+        target: { kind: 'commit', ref: head },
+        mode: 'merge-base',
+      })
+      expect((await localGit('diff', `${base}...${head}`)).stdout).toContain('+after')
+      // Locally retained commits also work if the remote is no longer reachable.
+      mr.state = 'merged'
+      await localGit('config', `url.${snapshot.repository}.insteadOf`, 'unused')
+      await expect(
+        service.handle({ kind: 'open-mr', repository: local, input: '7' }),
+      ).resolves.toEqual(result)
+    },
+  )
+
+  it('explains when historical commits cannot be recovered', async () => {
+    const { service, snapshot, mr } = await fixture()
+    mr.state = 'merged'
+    await promisify(execFile)('git', [
+      '-C',
+      snapshot.repository,
+      'config',
+      `url.${snapshot.repository}.insteadOf`,
+      'git@gitlab.example.com:group/nested/repo.git',
+    ])
+    await expect(
+      service.handle({ kind: 'open-mr', repository: snapshot.repository, input: '7' }),
+    ).rejects.toThrow('not available locally and could not be fetched')
+    mr.diff_refs = null
+    await expect(
+      service.handle({ kind: 'open-mr', repository: snapshot.repository, input: '7' }),
+    ).rejects.toThrow('no saved diff commits')
+  })
+
+  it.each(['closed', 'merged'])(
+    'loads metadata for an explicitly opened %s MR without branch names',
+    async (state) => {
+      const { service, snapshot, mr, requests } = await fixture()
+      mr.state = state
+      delete snapshot.branches
+      const result = await service.handle({ kind: 'lookup', snapshot: snapshot.id, iid: mr.iid })
+      expect(result.matches).toEqual([mr])
+      const selected = await service.handle({ kind: 'select', snapshot: snapshot.id, iid: mr.iid })
+      expect(selected.review?.mr.iid).toBe(mr.iid)
+      expect(selected.review?.mr.state).toBe(state)
+      expect(selected.review?.discussions).not.toHaveLength(0)
+      expect(requests.some(({ url }) => url.pathname.endsWith('/merge_requests'))).toBe(false)
+      // Returning to a manual comparison resumes ordinary branch matching.
+      expect((await service.handle({ kind: 'lookup', snapshot: snapshot.id })).matches).toEqual([])
+    },
+  )
+
+  it('rejects malformed IDs, foreign hosts, and links to another project', async () => {
+    const { service, snapshot } = await fixture()
+    for (const input of [
+      '0',
+      '-2',
+      'oops',
+      'https://other.example.com/group/nested/repo/-/merge_requests/7',
+      'https://gitlab.example.com/other/repo/-/merge_requests/7',
+      'https://gitlab.example.com/other/repo/-/merge_requests/7/diffs',
+      'https://gitlab.example.com/group/nested/repo/-/merge_requests/7invalid/diffs',
+    ]) {
+      await expect(
+        service.handle({ kind: 'open-mr', repository: snapshot.repository, input }),
+      ).rejects.toThrow()
+    }
+    await service.handle({ kind: 'disconnect' })
+    await expect(
+      service.handle({ kind: 'open-mr', repository: snapshot.repository, input: '7' }),
+    ).rejects.toThrow('Configure GitLab')
+  })
 })

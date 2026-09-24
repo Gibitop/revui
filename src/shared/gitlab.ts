@@ -1,3 +1,5 @@
+import type { Comparison } from './review'
+
 export type GitLabUser = { id: number; name: string; avatar_url?: string | null }
 export type GitLabConfig = {
   url: string
@@ -74,13 +76,15 @@ export type GitLabReview = {
   userId: number
   approvals: { approved: boolean; approved_by: { user: GitLabUser }[] } | null
   approvalError?: string
+  approvalBlockedReason?: string
   aligned: boolean
 }
 export type GitLabRequest =
+  | { kind: 'open-mr'; repository: string; input: string }
   | { kind: 'config' }
   | { kind: 'configure'; url: string; token: string; caCertificate?: string; ignoreTls?: boolean }
   | { kind: 'disconnect' }
-  | { kind: 'lookup'; snapshot: string }
+  | { kind: 'lookup'; snapshot: string; iid?: number }
   | { kind: 'select'; snapshot: string; iid: number }
   | { kind: 'refresh'; session: string }
   | { kind: 'avatar'; session: string; user: number }
@@ -99,6 +103,8 @@ export type GitLabRequest =
   | { kind: 'open-pipeline' | 'copy-pipeline-link'; session: string }
   | { kind: 'open-app' | 'copy-app-link'; session: string; environment: number }
 export type GitLabResult = {
+  iid?: number
+  comparison?: Comparison
   posted?: boolean
   discussion?: string
   avatar?: string | null

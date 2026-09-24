@@ -21,6 +21,8 @@ const defaultComparison: Comparison = {
 }
 
 export function Review({
+  initialMr,
+  initialComparison,
   repository,
   settings,
   theme,
@@ -28,6 +30,8 @@ export function Review({
   toolbar,
   searchToolbar,
 }: {
+  initialMr?: number
+  initialComparison?: Comparison
   toolbar: HTMLElement | null
   searchToolbar: HTMLElement | null
   repository: Repository
@@ -37,12 +41,13 @@ export function Review({
 }) {
   const recent = useQuery({
     queryKey: ['recent-comparison', repository.path],
+    enabled: !initialComparison,
     staleTime: 0,
     refetchOnMount: 'always',
     queryFn: () => window.desktop.recentComparison(repository.path),
     retry: false,
   })
-  if (recent.isPending) return <p className="p-6">Loading last comparison…</p>
+  if (!initialComparison && recent.isPending) return <p className="p-6">Loading last comparison…</p>
   return (
     <>
       {recent.error && (
@@ -58,13 +63,15 @@ export function Review({
         preferences={preferences}
         toolbar={toolbar}
         searchToolbar={searchToolbar}
-        initial={recent.data ?? defaultComparison}
+        initialMr={initialMr}
+        initial={initialComparison ?? recent.data ?? defaultComparison}
       />
     </>
   )
 }
 
 function ReviewSession({
+  initialMr,
   repository,
   settings,
   theme,
@@ -80,7 +87,9 @@ function ReviewSession({
   theme: 'light' | 'dark'
   preferences: (patch: PreferencesPatch) => void
   initial: Comparison
+  initialMr?: number
 }) {
+  const [mrIid, setMrIid] = useState(initialMr)
   const [gitlabReview, setGitlabReview] = useState<GitLabReview>()
   const [initialComparison] = useState(initial)
   const [controls, setControls] = useState({ comparison: initial, version: 0 })
@@ -409,8 +418,10 @@ function ReviewSession({
                 void window.desktop
                   .leaveWorkspace(repository.path)
                   .then((allowed) => {
-                    if (allowed && change === comparisonChange.current)
+                    if (allowed && change === comparisonChange.current) {
+                      if (!refresh) setMrIid(undefined)
                       openComparison(comparison, refresh)
+                    }
                   })
                   .catch((error) => setSnapshot((current) => ({ ...current, error })))
               }}
@@ -428,6 +439,7 @@ function ReviewSession({
           toolbar,
         )}
       <GitLabProvider
+        iid={mrIid}
         localThreads={records.data?.threads}
         snapshot={snapshot.data}
         onReviewChange={setGitlabReview}

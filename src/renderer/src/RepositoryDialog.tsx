@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, FolderGit2, FolderOpen, Loader2, Search } from 'lucide-react'
+import { ArrowRight, FolderGit2, FolderOpen, GitPullRequest, Loader2, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
@@ -11,28 +11,84 @@ export function RepositoryChoices({
 }: {
   paths: string[]
   pending: boolean
-  onSelect: (path: string) => void
+  onSelect: (path: string, mr?: string) => void
 }) {
+  const [mrPath, setMrPath] = useState<string | null>(null)
+  const [mr, setMr] = useState('')
   return (
     <>
       {paths.map((path) => (
-        <Button
+        <div
           key={path}
-          variant="ghost"
-          className="group h-auto w-full justify-start gap-3 px-3 py-3 text-left"
-          title={path}
-          disabled={pending}
-          onClick={() => onSelect(path)}
+          data-expanded={mrPath === path}
+          className="rounded-lg border border-transparent transition-colors data-[expanded=true]:border-border data-[expanded=true]:bg-muted/30"
         >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-surface text-muted-foreground">
-            <FolderGit2 />
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="truncate font-semibold">{path.split(/[\\/]/).pop()}</span>
-            <span className="truncate font-mono text-muted-foreground">{path}</span>
-          </span>
-          <ArrowRight className="text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
-        </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              className="group h-auto min-w-0 flex-1 justify-start gap-3 px-3 py-3 text-left"
+              title={path}
+              disabled={pending}
+              onClick={() => onSelect(path)}
+            >
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-surface text-muted-foreground">
+                <FolderGit2 />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="truncate font-semibold">{path.split(/[\\/]/).pop()}</span>
+                <span className="truncate font-mono text-muted-foreground">{path}</span>
+              </span>
+              <ArrowRight className="text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="mr-3 shrink-0 text-muted-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
+              aria-label={`Open merge request in ${path.split(/[\\/]/).pop()}`}
+              title="Open merge request"
+              disabled={pending}
+              aria-expanded={mrPath === path}
+              onClick={() => {
+                setMrPath(mrPath === path ? null : path)
+                setMr('')
+              }}
+            >
+              <GitPullRequest />
+            </Button>
+          </div>
+          {mrPath === path && (
+            <form
+              className="mx-3 border-t py-3"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (mr.trim() && !pending) onSelect(path, mr.trim())
+              }}
+            >
+              <div>
+                <p className="text-xs font-medium text-muted-foreground">Merge request</p>
+                <div className="mt-2 flex items-center gap-2 rounded-md border border-input bg-background p-1 focus-within:ring-2 focus-within:ring-ring">
+                  <Input
+                    autoFocus
+                    aria-label="Merge request ID or link"
+                    placeholder="!123 or paste a merge request link"
+                    className="h-8 w-full flex-1 border-0 bg-transparent px-2 shadow-none focus-visible:ring-0"
+                    value={mr}
+                    disabled={pending}
+                    onChange={(event) => setMr(event.target.value)}
+                  />
+                  <Button
+                    type="submit"
+                    className="h-8 shrink-0 gap-1.5 px-2.5"
+                    disabled={pending || !mr.trim()}
+                  >
+                    Open MR
+                    {pending ? <Loader2 className="animate-spin" /> : <ArrowRight />}
+                  </Button>
+                </div>
+              </div>
+            </form>
+          )}
+        </div>
       ))}
     </>
   )
@@ -50,7 +106,7 @@ export function RepositoryDialog({
   onOpenChange: (open: boolean) => void
   paths: string[]
   pending: boolean
-  onSelect: (path?: string) => void
+  onSelect: (path?: string, mr?: string) => void
   error: Error | null
 }) {
   const [search, setSearch] = useState('')

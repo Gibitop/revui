@@ -7,6 +7,7 @@ export async function registerGitLabIPC(
   directory: string,
   reviews: ReviewService,
   assertSender: (event: IpcMainInvokeEvent) => void,
+  recentRepositories: () => string[],
 ) {
   const gitlab = new GitLabService(
     directory,
@@ -34,6 +35,8 @@ export async function registerGitLabIPC(
   ipcMain.handle(channels.gitlab, async (event, input: unknown) => {
     assertSender(event)
     const request = gitlabRequestSchema.parse(input)
+    if (request.kind === 'open-mr' && !recentRepositories().includes(request.repository))
+      throw new Error('Choose this repository using the folder picker first.')
     if (loadError && request.kind !== 'configure' && request.kind !== 'disconnect') throw loadError
     const result = await gitlab.handle(request)
     if (request.kind === 'configure' || request.kind === 'disconnect') loadError = null

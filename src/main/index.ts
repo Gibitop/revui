@@ -189,7 +189,12 @@ if (!app.requestSingleInstanceLock()) {
         return clipboard.writeText(z.string().min(1).max(32768).parse(path))
       })
       const reviews = new ReviewService(app.getPath('userData'))
-      await registerGitLabIPC(app.getPath('userData'), reviews, assertSender)
+      await registerGitLabIPC(
+        app.getPath('userData'),
+        reviews,
+        assertSender,
+        () => settings.get().recentRepositories,
+      )
       const repositoryPath = (value: unknown) => {
         const path = z.string().min(1).max(32768).parse(value)
         if (!settings.get().recentRepositories.includes(path))

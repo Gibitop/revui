@@ -28,6 +28,11 @@ const anchor = z.object({
   startLine: z.number().int().positive().optional(),
 })
 export const gitlabRequestSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('open-mr'),
+    repository: z.string().min(1).max(32768),
+    input: z.string().trim().min(1).max(2000),
+  }),
   z.object({ kind: z.literal('config') }),
   z.object({
     kind: z.literal('configure'),
@@ -37,7 +42,11 @@ export const gitlabRequestSchema = z.discriminatedUnion('kind', [
     ignoreTls: z.boolean().optional(),
   }),
   z.object({ kind: z.literal('disconnect') }),
-  z.object({ kind: z.literal('lookup'), snapshot: id }),
+  z.object({
+    kind: z.literal('lookup'),
+    snapshot: id,
+    iid: z.number().int().positive().optional(),
+  }),
   z.object({ kind: z.literal('select'), snapshot: id, iid: z.number().int().positive() }),
   z.object({ kind: z.literal('refresh'), session: id }),
   z.object({ kind: z.literal('avatar'), session: id, user: z.number().int().positive() }),
@@ -331,6 +340,41 @@ export class GitLabService {
         (error: Error) => ({ value: null, error: error.message }),
       ),
     ])
+    delete review.approvalBlockedReason
+    if (mr.state !== 'opened') {
+      review.approvalBlockedReason = 'Only open merge requests can be approved.'
+    } else {
+      try {
+        const [user, addresses, commits] = await Promise.all([
+          this.api<{ email?: string; public_email?: string; commit_email?: string }>('user'),
+          this.api<{ email: string; confirmed_at: string | null }[]>('user/emails'),
+          this.api<{ author_email: string; committer_email: string }[]>(`${root}/commits`),
+        ])
+        const emails = new Set(
+          [
+            user.email,
+            user.public_email,
+            user.commit_email,
+            ...addresses.filter((address) => address.confirmed_at).map((address) => address.email),
+          ]
+            .filter((email): email is string => !!email && email.includes('@'))
+            .map((email) => email.trim().toLowerCase()),
+        )
+        if (!emails.size) throw new Error('No account email addresses available.')
+        if (
+          commits.some((commit) =>
+            [commit.author_email, commit.committer_email].some((email) =>
+              emails.has(email.trim().toLowerCase()),
+            ),
+          )
+        )
+          review.approvalBlockedReason =
+            'You cannot approve a merge request containing your own commits.'
+      } catch {
+        review.approvalBlockedReason =
+          'Could not verify commit authorship. Refresh the MR before approving.'
+      }
+    }
     review.aligned = await this.aligned(session.snapshot, mr)
     if (review.aligned && mr.diff_refs && !isDeepStrictEqual(review.pinned, mr.diff_refs)) {
       const versions = await this.api<
@@ -578,11 +622,122 @@ export class GitLabService {
       this.avatars.clear()
       return { config: this.config() }
     }
+    if (input.kind === 'open-mr') {
+      if (!this.credentials?.encrypted) throw new Error('Configure GitLab in Settings first.')
+      const { stdout } = await exec(
+        'git',
+        ['-C', input.repository, 'config', '--get', 'remote.origin.url'],
+        { timeout: 10000, windowsHide: true },
+      )
+      const projectPath = projectFromOrigin(stdout.trim(), this.credentials.url)
+      const value = input.input.trim()
+      let number = /^!?([1-9]\d*)$/.exec(value)?.[1]
+      if (!number) {
+        let url: URL
+        try {
+          url = new URL(value)
+        } catch {
+          throw new Error('Enter an MR ID or a GitLab merge request link.')
+        }
+        const match = /^(.*?)\/-\/merge_requests\/([1-9]\d*)(?:\/.*)?$/.exec(url.pathname)
+        const instance = new URL(this.credentials.url)
+        if (
+          !match ||
+          url.origin !== instance.origin ||
+          url.username ||
+          url.password ||
+          projectFromOrigin(`${url.origin}${match[1]}`, this.credentials.url) !== projectPath
+        )
+          throw new Error('This MR link does not belong to the selected repository.')
+        number = match[2]
+      }
+      const iid = Number(number)
+      if (!Number.isSafeInteger(iid)) throw new Error('Enter a valid MR ID.')
+      const project = await this.api<{ id: number }>(`projects/${encodeURIComponent(projectPath)}`)
+      const mr = await this.api<MR>(`projects/${project.id}/merge_requests/${iid}`)
+      const source =
+        mr.source_project_id === project.id
+          ? `refs/remotes/origin/${mr.source_branch}`
+          : `refs/revui/merge-requests/${iid}/head`
+      const target = `refs/remotes/origin/${mr.target_branch}`
+      if (mr.state === 'opened') {
+        try {
+          await exec(
+            'git',
+            [
+              '-C',
+              input.repository,
+              'fetch',
+              'origin',
+              `+refs/heads/${mr.target_branch}:${target}`,
+              `+refs/merge-requests/${iid}/head:${source}`,
+            ],
+            { timeout: 120000, windowsHide: true },
+          )
+          return {
+            iid,
+            comparison: {
+              base: { kind: 'commit', ref: `origin/${mr.target_branch}` },
+              target: {
+                kind: 'commit',
+                ref: source.startsWith('refs/remotes/') ? source.slice(13) : source,
+              },
+              mode: 'merge-base',
+            },
+          }
+        } catch {
+          // GitLab may remove MR refs. The saved diff commits can still be available.
+        }
+      }
+      // A merged MR's head may already be in today's target branch. Compare its
+      // recorded diff base instead, so opening historical MRs does not yield an empty diff.
+      const pinned = mr.diff_refs
+      if (
+        !pinned ||
+        ![pinned.base_sha, pinned.head_sha].every((sha) => /^[a-f0-9]{40,64}$/i.test(sha))
+      )
+        throw new Error(
+          `GitLab has no saved diff commits for MR !${iid}. Its branches or MR ref are no longer available.`,
+        )
+      for (const sha of new Set([pinned.base_sha, pinned.head_sha])) {
+        const available = await exec(
+          'git',
+          ['-C', input.repository, 'cat-file', '-e', `${sha}^{commit}`],
+          { timeout: 10000, windowsHide: true },
+        ).then(
+          () => true,
+          () => false,
+        )
+        if (available) continue
+        try {
+          await exec('git', ['-C', input.repository, 'fetch', 'origin', sha], {
+            timeout: 120000,
+            windowsHide: true,
+          })
+          await exec('git', ['-C', input.repository, 'cat-file', '-e', `${sha}^{commit}`], {
+            timeout: 10000,
+            windowsHide: true,
+          })
+        } catch {
+          throw new Error(
+            `Cannot open MR !${iid}: commit ${sha} is not available locally and could not be fetched from origin. GitLab may have removed it, or access to the repository may be unavailable.`,
+          )
+        }
+      }
+      return {
+        iid,
+        comparison: {
+          base: { kind: 'commit', ref: pinned.base_sha },
+          target: { kind: 'commit', ref: pinned.head_sha },
+          mode: 'merge-base',
+        },
+      }
+    }
     if (input.kind === 'lookup') {
       const snapshot = this.snapshot(input.snapshot)
       this.matches.clear()
       this.sessions.clear()
-      if (!snapshot.branches || !this.credentials?.encrypted)
+      if ((!snapshot.branches && !input.iid) || !this.credentials?.encrypted)
         return { matches: [], config: this.config() }
       const { stdout } = await exec(
         'git',
@@ -592,11 +747,17 @@ export class GitLabService {
       const project = await this.api<{ id: number }>(
         `projects/${encodeURIComponent(projectFromOrigin(stdout.trim(), this.credentials.url))}`,
       )
+      if (input.iid) {
+        const mr = await this.api<MR>(`projects/${project.id}/merge_requests/${input.iid}`)
+        this.snapshot(input.snapshot)
+        this.matches.set(input.snapshot, { project: project.id, mrs: [mr] })
+        return { matches: [mr] }
+      }
       const params = new URLSearchParams({
         state: 'opened',
         scope: 'all',
-        source_branch: snapshot.branches.source,
-        target_branch: snapshot.branches.target,
+        source_branch: snapshot.branches!.source,
+        target_branch: snapshot.branches!.target,
       })
       const mrs = (await this.api<MR[]>(`projects/${project.id}/merge_requests?${params}`)).filter(
         (mr) =>
@@ -716,6 +877,7 @@ export class GitLabService {
     } else if (input.kind === 'approve') {
       if (input.approved) {
         await this.refresh(session)
+        if (review.approvalBlockedReason) throw new Error(review.approvalBlockedReason)
         if (!review.aligned) throw new Error('Open and review the MR revision before approving.')
       }
       await this.api(

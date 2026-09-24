@@ -65,7 +65,11 @@ test('100,000 tracked files and 1,000 changed files', async ({}, testInfo) => {
   const application = await electron.launch({ args: ['.'], env })
   try {
     const page = await application.firstWindow()
-    await page.getByRole('region', { name: 'Recent repositories' }).getByRole('button').click()
+    await page
+      .getByRole('region', { name: 'Recent repositories' })
+      .getByRole('button')
+      .first()
+      .click()
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('HEAD')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
     await page.getByRole('combobox', { name: 'Old', exact: true }).fill('HEAD~1')
