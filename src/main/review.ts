@@ -52,6 +52,7 @@ export const actionSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('thread'),
+      author: z.literal('AI').optional(),
       path: pathSchema,
       side: z.enum(['deletions', 'additions']),
       start: z.number().int().positive(),
@@ -104,6 +105,7 @@ const recordSchema = z.object({
             .object({
               id: z.string().uuid(),
               body: z.string(),
+              author: z.literal('AI').optional(),
               createdAt: timestampSchema,
               updatedAt: timestampSchema.optional(),
             })
@@ -132,6 +134,8 @@ type Active = {
   controller: AbortController
   started: number
   indexDigest: string
+  diffArgs: string[]
+  metadataDigest: string
 }
 
 export class ReviewService {
@@ -514,6 +518,8 @@ export class ReviewService {
       controller,
       started,
       indexDigest: digest(listing),
+      diffArgs: args,
+      metadataDigest: digest(Buffer.concat([raw, untracked])),
     }
     // Remember user-entered refs; serialize writes so a canceled open cannot
     // overwrite a newer selection, while review identity uses resolved endpoints.
@@ -542,6 +548,27 @@ export class ReviewService {
 
   gitlabSnapshot(id: string): Snapshot {
     return structuredClone(this.get(id).snapshot)
+  }
+
+  async assertCurrent(id: string) {
+    const active = this.get(id)
+    const snapshot = active.snapshot
+    if (snapshot.comparison.target.kind === 'commit') return
+    const [raw, untracked, index] = await Promise.all([
+      this.git(snapshot.repository, active.diffArgs),
+      snapshot.comparison.target.kind === 'working'
+        ? this.git(snapshot.repository, ['ls-files', '--others', '--exclude-standard', '-z'])
+        : Promise.resolve(Buffer.alloc(0)),
+      this.git(snapshot.repository, ['ls-files', '--stage', '-z']),
+    ])
+    if (
+      digest(Buffer.concat([raw, untracked])) !== active.metadataDigest ||
+      digest(index) !== active.indexDigest
+    )
+      throw new Error(
+        'Local changes differ from this snapshot. Compare again before using AI results.',
+      )
+    this.get(id)
   }
 
   async workspaceSnapshot(id: string): Promise<Snapshot & { indexTree?: string }> {
@@ -971,7 +998,15 @@ export class ReviewService {
             resolved: false,
             createdAt: now,
             updatedAt: now,
-            messages: [{ id: randomUUID(), body: action.body, createdAt: now, updatedAt: now }],
+            messages: [
+              {
+                id: randomUUID(),
+                body: action.body,
+                createdAt: now,
+                updatedAt: now,
+                ...(action.author ? { author: action.author } : {}),
+              },
+            ],
           })
         }
       } else {

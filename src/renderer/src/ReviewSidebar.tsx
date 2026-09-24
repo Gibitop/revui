@@ -1,13 +1,14 @@
+import { useAIReview } from './AIReview'
 import { Input } from '@/components/ui/input'
 import { Menu } from '@base-ui/react/menu'
-import { memo, useEffect, useRef, useState, type RefObject } from 'react'
+import { memo, useEffect, useEffectEvent, useRef, useState, type RefObject } from 'react'
 import {
   createFileTreeIconResolver,
   getBuiltInSpriteSheet,
   preparePresortedFileTreeInput,
   type GitStatus,
 } from '@pierre/trees'
-import { FileTree, useFileTree } from '@pierre/trees/react'
+import { FileTree, useFileTree, useFileTreeSelector } from '@pierre/trees/react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -16,6 +17,9 @@ import {
   Files,
   List,
   ListTree,
+  ListOrdered,
+  FolderTree,
+  LoaderCircle,
   FileDiff as FileDiffIcon,
   MessagesSquare,
 } from 'lucide-react'
@@ -38,6 +42,8 @@ export const gitStatuses: Record<string, GitStatus> = {
 }
 
 export function ReviewSidebar({
+  order,
+  setOrder,
   snapshot,
   settings,
   preferences,
@@ -56,6 +62,8 @@ export function ReviewSidebar({
   threadFocused,
   onShowAll,
 }: {
+  order: string
+  setOrder: (order: string) => void
   canNavigate: boolean
   navigate: (direction: number) => void
   threadFocused: boolean
@@ -75,8 +83,8 @@ export function ReviewSidebar({
   theme: 'light' | 'dark'
 }) {
   // Keep drag updates local so resizing does not rerender every diff card.
+  const view = settings.fileView
   const [sidebarWidth, setSidebarWidth] = useState(settings.sidebarWidth)
-  const [view, setView] = useState('tree')
   return (
     <>
       <aside
@@ -111,10 +119,58 @@ export function ReviewSidebar({
                     aria-label="File view"
                     className="min-w-48 rounded-md border bg-background p-1 text-foreground shadow-lg outline-none"
                   >
-                    <Menu.RadioGroup value={view} onValueChange={setView}>
+                    <Menu.RadioGroup
+                      value={view}
+                      onValueChange={(value) =>
+                        preferences({ fileView: value as Settings['fileView'] })
+                      }
+                    >
                       {[
                         { value: 'tree', label: 'Tree view', Icon: ListTree },
                         { value: 'flat', label: 'Flat list', Icon: List },
+                      ].map(({ value, label, Icon }) => (
+                        <Menu.RadioItem
+                          key={value}
+                          value={value}
+                          closeOnClick
+                          className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 outline-none data-highlighted:bg-accent"
+                        >
+                          <Icon size={16} aria-hidden="true" />
+                          {label}
+                          <span className="ml-auto size-4">
+                            <Menu.RadioItemIndicator>
+                              <Check size={16} aria-hidden="true" />
+                            </Menu.RadioItemIndicator>
+                          </span>
+                        </Menu.RadioItem>
+                      ))}
+                    </Menu.RadioGroup>
+                  </Menu.Popup>
+                </Menu.Positioner>
+              </Menu.Portal>
+            </Menu.Root>
+            <Menu.Root>
+              <Menu.Trigger
+                render={<Button variant="ghost" size="icon" />}
+                aria-label="File ordering"
+                className="shrink-0"
+              >
+                {order === 'ai' ? (
+                  <ListOrdered aria-hidden="true" />
+                ) : (
+                  <FolderTree aria-hidden="true" />
+                )}
+              </Menu.Trigger>
+              <Menu.Portal>
+                <Menu.Positioner align="end" sideOffset={5} className="z-40">
+                  <Menu.Popup
+                    aria-label="File ordering"
+                    className="min-w-48 rounded-md border bg-background p-1 text-foreground shadow-lg outline-none"
+                  >
+                    <Menu.RadioGroup value={order} onValueChange={setOrder}>
+                      {[
+                        { value: 'fs', label: 'Filesystem order', Icon: FolderTree },
+                        { value: 'ai', label: 'AI review order', Icon: ListOrdered },
                       ].map(({ value, label, Icon }) => (
                         <Menu.RadioItem
                           key={value}
@@ -192,12 +248,17 @@ export function ReviewSidebar({
               <span className="text-muted-foreground">· {paths.length} files</span>
             </span>
             <div className="flex shrink-0">
+              {threadFocused && (
+                <Button variant="ghost" className="h-6 px-2 text-xs" onClick={onShowAll}>
+                  All changes
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
                 className="size-6"
-                aria-label="Previous file"
-                title="Previous file"
+                aria-label={filter === 'unresolved' ? 'Previous thread' : 'Previous file'}
+                title={filter === 'unresolved' ? 'Previous thread' : 'Previous file'}
                 disabled={!canNavigate}
                 onClick={() => navigate(-1)}
               >
@@ -207,8 +268,8 @@ export function ReviewSidebar({
                 variant="ghost"
                 size="icon"
                 className="size-6"
-                aria-label="Next file"
-                title="Next file"
+                aria-label={filter === 'unresolved' ? 'Next thread' : 'Next file'}
+                title={filter === 'unresolved' ? 'Next thread' : 'Next file'}
                 disabled={!canNavigate}
                 onClick={() => navigate(1)}
               >
@@ -216,22 +277,28 @@ export function ReviewSidebar({
               </Button>
             </div>
           </div>
-          {threadFocused && (
-            <Button variant="ghost" onClick={onShowAll}>
-              All changes
-            </Button>
-          )}
         </div>
-        {!!snapshot && (
-          <ReviewTree
-            view={view}
-            files={snapshot.files}
-            paths={paths}
-            selected={selected}
-            onSelect={select}
-            theme={theme}
-          />
-        )}
+        {!!snapshot &&
+          (order === 'ai' ? (
+            <ReviewOrder
+              view={view}
+              settingsKey={JSON.stringify([settings.aiTasks.order, settings.aiLanguage])}
+              theme={theme}
+              snapshot={snapshot}
+              paths={paths}
+              selected={selected}
+              select={select}
+            />
+          ) : (
+            <ReviewTree
+              view={view}
+              files={snapshot.files}
+              paths={paths}
+              selected={selected}
+              onSelect={select}
+              theme={theme}
+            />
+          ))}
       </aside>
       {!settings.sidebarCollapsed && (
         <div
@@ -283,7 +350,173 @@ export function ReviewSidebar({
   )
 }
 
+function ReviewOrder({
+  view,
+  theme,
+  settingsKey,
+  snapshot,
+  paths,
+  selected,
+  select,
+}: {
+  theme: 'light' | 'dark'
+  view: Settings['fileView']
+  settingsKey: string
+  snapshot: Snapshot
+  paths: string[]
+  selected: string
+  select: (path: string) => void
+}) {
+  const ai = useAIReview()
+  const loaded = ai?.state?.snapshot === snapshot.id
+  const load = useEffectEvent(() => {
+    void ai?.run({ kind: 'order', snapshot: snapshot.id })
+  })
+  useEffect(() => {
+    if (loaded) load()
+  }, [loaded, snapshot.id, settingsKey])
+  const state = loaded ? ai?.state : undefined
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    listRef.current
+      ?.querySelector(view === 'tree' ? '[data-selected-section="true"]' : '[aria-current="true"]')
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [selected, view])
+  const error = state?.order.error || (!state ? ai?.error : '')
+  const loading =
+    !error &&
+    (!state || state.order.running || (!state.record.walkthroughKey && !state.order.error))
+  const statuses = new Map(snapshot.files.map((file) => [file.path, file]))
+  return (
+    <div
+      ref={listRef}
+      aria-label="Suggested review order"
+      aria-busy={loading}
+      className="flat-file-list min-h-0 flex-1 overflow-auto px-3 pb-3"
+      style={{ colorScheme: theme }}
+    >
+      <div
+        aria-hidden="true"
+        className="hidden"
+        dangerouslySetInnerHTML={{ __html: fileIconSprite }}
+      />
+      {loading && (
+        <div className="space-y-4 py-4" role="status">
+          <div className="flex items-center gap-2 font-medium">
+            <LoaderCircle className="size-4 motion-safe:animate-spin" aria-hidden="true" />
+            Preparing your review
+          </div>
+          <p className="text-muted-foreground">
+            Grouping related changes into a step-by-step guide. You can keep browsing while it’s
+            prepared.
+          </p>
+          <div aria-hidden="true" className="space-y-4 motion-safe:animate-pulse">
+            {[0, 1, 2].map((step) => (
+              <div key={step} className="space-y-2 rounded-md border p-3">
+                <div className="h-3 w-2/3 rounded bg-muted" />
+                <div className="h-2 w-full rounded bg-muted" />
+                <div className="h-2 w-4/5 rounded bg-muted" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {error && (
+        <div role="alert">
+          <p>{error}</p>
+          <Button
+            variant="ghost"
+            onClick={() => void ai?.run({ kind: state ? 'order' : 'get', snapshot: snapshot.id })}
+          >
+            Retry review order
+          </Button>
+        </div>
+      )}
+      {!loading && !error && !paths.length && (
+        <p className="py-3">
+          {snapshot.files.length ? 'No files match this view.' : 'No changed files.'}
+        </p>
+      )}
+      {!loading &&
+        !error &&
+        state?.record.walkthrough.map((section, index) => {
+          const visible = section.paths.filter((path) => paths.includes(path))
+          if (!visible.length) return null
+          return (
+            <section
+              key={section.id}
+              data-selected-section={visible.includes(selected) ? 'true' : undefined}
+              className="mb-3 border-t pt-3"
+              aria-label={`Review step ${index + 1}: ${section.title}`}
+            >
+              <div className="sticky top-0 z-10 bg-surface py-2" data-testid="review-step-header">
+                <h3 className="font-semibold">
+                  {index + 1}. {section.title}
+                </h3>
+                <p className="mt-2 text-muted-foreground">{section.rationale}</p>
+              </div>
+              {view === 'tree' ? (
+                <ReviewTree
+                  view="tree"
+                  files={snapshot.files}
+                  paths={visible}
+                  selected={selected}
+                  onSelect={select}
+                  theme={theme}
+                  section
+                />
+              ) : (
+                visible.map((path) => {
+                  const file = statuses.get(path)
+                  const status = file?.status
+                  const gitStatus = file?.mergeConflict
+                    ? 'conflicted'
+                    : status
+                      ? (gitStatuses[status] ?? 'modified')
+                      : undefined
+                  const icon = resolveIcon('file-tree-icon-file', path)
+                  return (
+                    <button
+                      key={path}
+                      type="button"
+                      aria-label={path}
+                      aria-current={selected === path ? 'true' : undefined}
+                      data-git-status={gitStatus}
+                      title={path}
+                      onClick={() => select(path)}
+                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left font-mono text-[13px] hover:bg-accent focus-visible:outline-ring aria-current:bg-accent"
+                    >
+                      <svg
+                        width={16}
+                        height={16}
+                        viewBox="0 0 16 16"
+                        className="shrink-0"
+                        aria-hidden="true"
+                        style={{
+                          color: `var(--trees-file-icon-color-${icon.token ?? 'default'}, var(--trees-file-icon-color-default))`,
+                        }}
+                      >
+                        <use href={`#${icon.name}`} />
+                      </svg>
+                      <span className="min-w-0 flex-1 truncate">{path}</span>
+                      {status && (
+                        <span aria-label={gitStatus}>
+                          {file?.mergeConflict ? 'Conflicted' : status}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })
+              )}
+            </section>
+          )
+        })}
+    </div>
+  )
+}
+
 const ReviewTree = memo(function ReviewTree({
+  section = false,
   view,
   files,
   paths,
@@ -292,6 +525,7 @@ const ReviewTree = memo(function ReviewTree({
   theme,
 }: {
   view: string
+  section?: boolean
   files: Snapshot['files']
   paths: string[]
   selected: string
@@ -308,6 +542,8 @@ const ReviewTree = memo(function ReviewTree({
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
   const [prepared, setPrepared] = useState(() => preparePresortedFileTreeInput([]))
+  // Section arrays are recreated when selection changes; preserve each tree's expansion.
+  const pathsKey = JSON.stringify(paths)
   useEffect(() => {
     let current = true
     setError('')
@@ -329,7 +565,7 @@ const ReviewTree = memo(function ReviewTree({
         if (current) setError(event.message || 'Tree worker failed')
         worker?.terminate()
       }
-      worker.postMessage({ kind: 'tree', paths })
+      worker.postMessage({ kind: 'tree', paths: JSON.parse(pathsKey) })
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error))
       worker?.terminate()
@@ -338,7 +574,7 @@ const ReviewTree = memo(function ReviewTree({
       current = false
       worker?.terminate()
     }
-  }, [paths, attempt])
+  }, [pathsKey, attempt])
   const conflicts = useRef(new Set<string>())
   const { model } = useFileTree({
     preparedInput: prepared,
@@ -383,6 +619,9 @@ const ReviewTree = memo(function ReviewTree({
     }
     model.scrollToPath(selected, { focus: false })
   }, [model, selected, prepared])
+  const treeHeight = useFileTreeSelector(model, (tree) =>
+    Math.max(tree.getItemHeight(), tree.getVisibleCount() * tree.getItemHeight()),
+  )
   if (view === 'flat') {
     const statuses = new Map(files.map((file) => [file.path, file]))
     return (
@@ -453,8 +692,16 @@ const ReviewTree = memo(function ReviewTree({
   return (
     <FileTree
       model={model}
+      onClickCapture={(event) => {
+        // Selection changes omit clicks on the already selected row.
+        const row = event.nativeEvent
+          .composedPath()
+          .find((node) => node instanceof HTMLElement && node.dataset.itemType === 'file') as
+          HTMLElement | undefined
+        if (row?.dataset.itemPath === selected) onSelect(selected)
+      }}
       className="file-tree block min-h-0 flex-1"
-      style={{ colorScheme: theme }}
+      style={{ colorScheme: theme, ...(section ? { height: treeHeight, flex: 'none' } : {}) }}
     />
   )
 })

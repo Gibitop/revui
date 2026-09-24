@@ -35,7 +35,7 @@ The app supports reading code, writing review comments, and composing suggestion
 - Left: searchable file tree.
 - Center: continuous multi-file diff by default, with a focused single-file mode.
 - MR metadata opens in a right-side overlay like search, triggered by the button beside Search. Include title, metadata, discussions and approval actions.
-- Right: collapsible AI chat and review walkthrough.
+- Right: collapsible, resizable AI chat. Grouped review walkthroughs appear under AI review order, independently of the remembered Tree/List layout.
 - Provide unified/split diffs, light/dark/system themes, resizable panels, keyboard navigation, file search, next/previous change, and next/previous unresolved thread.
 - Use a monochrome palette. Reserve color for semantic UI such as added/deleted lines and diagnostic status.
 - Use at most three text styles: regular UI text (Geist 400), emphasized labels (Geist 600), and code/paths (Geist Mono 400). All use 13px font size, 20px line height, normal letter spacing, and no text transforms.
@@ -135,13 +135,13 @@ Reuse installed harnesses and their existing authentication. Show actionable set
 
 AI features:
 
-- Chat scoped to the repository and active review, with attachments for selected lines, files, threads, and MR context.
-- Explicit **Review changes** and **Suggest review order** actions.
+- Chat scoped to the repository and active review, with optional local-thread attachments and automatic MR context in system instructions. Send only comparison parameters (working directory, source, target, merge-base mode), never diff/file contents; the model inspects Git itself. Enter sends; Shift+Enter inserts a newline.
+- **Review changes** beside the Codex panel title runs in a separate background session and creates local comments authored by AI without affecting chat. Selecting **AI review order** in the ordering menu lazily generates and caches structured review steps in a separate, hidden model conversation.
 - Findings containing severity, explanation, path, side, line range, and optional replacement code.
-- A grouped walkthrough of related files/hunks with rationale and completion state.
-- Accept, dismiss, edit, and convert findings into local threads or explicitly posted GitLab comments.
+- A grouped walkthrough of related files/hunks with rationale, file icons, Git status colors, and navigation in section order.
+- Valid findings automatically become local AI comments, with standard editing, resolution, deletion, and explicit GitLab upload.
 
-Request structured review results and validate them against the snapshot before displaying actionable annotations. Invalid or unanchored output remains visible as text, never as a fabricated inline finding. Do not change the user’s review order automatically.
+Request structured review results and validate them against the snapshot before displaying actionable annotations. Invalid or unanchored output produces a background error without adding chat messages or comments. Do not change the user’s review order automatically.
 
 Configure review sessions to read source and request approval for commands. Disable source-editing tools where supported. An approved command can still create artifacts or modify files; detect resulting changes and mark affected review results stale. If a harness cannot enforce the required permission behavior, disable command execution for that adapter.
 
@@ -178,7 +178,7 @@ Base-side semantic navigation and other language servers are deferred.
 
 Each milestone ends with a usable application, relevant automated checks, and an updated `plan.md`. Performance work happens throughout rather than being postponed to milestone 7.
 
-### Implementation status — September 23, 2026
+### Implementation status — September 24, 2026
 
 **Milestone 0: implemented and verified on macOS arm64; Windows verification pending CI.**
 
@@ -232,9 +232,19 @@ Each milestone ends with a usable application, relevant automated checks, and an
 - [x] Comments post directly; failures keep composer text, uncertain outcomes are never automatically retried, and local uploads remove the local comment only after confirmed success.
 - [x] Focus-aware 60-second polling, focus/manual refresh, explicit new-revision banner and fetch/open action; revision and anchor validation before posting comments. Unaligned comparisons cannot approve or post inline.
 - [x] TypeScript, Hooks lint, formatting, production build, Vitest checks, and Playwright desktop tests pass. Coverage includes lookup pagination/project matching, branch identity, changed MR heads, renamed paths, permissions, direct multiline posting, uncertain posting outcomes, the overlay/spinner/red flash, automatic and stale lookup, inline suggestions, approvals and unresolved navigation. The opt-in benchmark was not rerun. Installed tool entry points were used directly because pnpm registry-signature verification was unavailable in the execution environment.
-- [ ] Validate against a designated real GitLab test project and record its tested server version; Windows validation remains pending CI.
 
-**Next: milestone 4, Codex review.** AI controls remain omitted until functional. Monaco remains the planned suggestion editor in milestone 6.
+**Milestone 4: implemented; protocol/service and Electron fixture verification on macOS arm64. Authenticated model-turn and Windows validation pending.**
+
+- [x] Main-process Codex stdio adapter behind a small start/resume/send/cancel/approve harness interface, with protocol negotiation, actionable startup failures, streaming messages/tool activity, crash recovery, and persisted session identifiers. Uses installed authentication; tested local initialization and permission negotiation with Codex 0.146.0.
+- [x] Settings → AI provides persisted model and supported reasoning-effort choices for chat, code review, and review order, discovered from Codex. Choices apply to new/resumed sessions and review-order cache keys. A preferred response language applies to all AI tasks.
+- [x] Collapsible and resizable Codex panel with independently running persisted chat tabs, per-tab drafts, hidden tool activity, reference attachments, explicit Review changes, cancellation, resume, and Enter-to-send. Panel width/preference, transcript, findings, and walkthrough sections persist.
+- [x] Per-chat permission selector with Read only (default), Ask for approval, Approve for me (Codex automatic reviewer), and Full access. Background tasks remain read-only. Manual approvals stay outside the transcript, scoped to their chat; unsupported policies are rejected. Workspace and mutable-snapshot checks invalidate results after changed content; staged chat creates/reuses an isolated index worktree; background tasks inspect Git comparison parameters directly.
+- [x] Background code review validates structured findings against path, side, range, content fingerprint, and snapshot before automatically creating local comments authored by AI. Duplicate comments are skipped. Review status, errors, and cancellation are separate from chat; automatic prompts/results never enter the chat transcript. Standard local-comment controls provide editing, resolution, deletion, and explicit GitLab upload. AI never posts automatically.
+- [x] File layout (Tree/List) and ordering (Filesystem/AI) have separate controls. Layout persists; reviews open in Filesystem order. AI Tree layout gives each section its own tree with unrestricted content height and sticky section headings. It lazily generates validated JSON sections in a separate, read-only background session; no generation messages or approval dialogs enter chat. Cached steps include rationale, file navigation, file-type icons, and Git status colors, and invalidate when comparison parameters or mutable content change. Mutable refreshes retain outdated findings, and new chat generations start separate sessions.
+- [x] Versioned atomic AI persistence preserves unreadable records. Prompts contain comparison parameters and attachment references instead of diffs or file contents. Local anchor validation loads only files referenced by findings; explicit discussion attachments retain a 3 MiB request limit. Available MR metadata/discussions are supplied automatically in system instructions without fetched diffs.
+- [x] All 131 Vitest checks, all 13 enabled Playwright desktop tests, TypeScript, Hooks lint, formatting, and production build pass on macOS arm64. New fixtures cover streaming, approvals, denied edits, cancellation, resume, crashes, malformed/unanchored findings, stale generations, local conversion, persistence, walkthroughs, staged isolation, dirty historical workspaces, and unborn repositories. Additional fixtures verify parameter-only prompts, legacy-session migration, hidden order generation, cache reuse/invalidation, and malformed sections. Desktop coverage exercises chat, approvals, cancellation, automatic local AI comments, independent chat/background review, lazy review order, section-based next/previous navigation, response language, persisted panel resizing, Enter/Shift+Enter, and restart persistence.
+
+**Next: milestone 5, OpenCode.** Monaco remains the planned suggestion editor in milestone 6.
 
 Implementation note: Electron Vite 5 currently requires Vite 5–7. Use Vite 7 with React plugin 5, rather than the incompatible latest Vite/React-plugin majors. Tests and scripts run with Node where required; Electron owns desktop runtime execution.
 

@@ -1,3 +1,4 @@
+import { useAIReview } from './AIReview'
 import { ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useState } from 'react'
@@ -23,6 +24,7 @@ export function Thread({
   inOverlay?: boolean
   onNavigate?: () => void
 }) {
+  const ai = useAIReview()
   const gitlab = useGitLab()
   const [reply, setReply] = useState('')
   const [error, setError] = useState('')
@@ -42,37 +44,40 @@ export function Thread({
               aria-hidden="true"
               className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground ring-1 ring-border"
             >
-              Y
+              {message.author === 'AI' ? 'AI' : 'Y'}
             </span>
-            <span className="text-foreground">You</span>
+            <span className="text-foreground">{message.author ?? 'You'}</span>
           </span>
         ),
       }))}
+      onAttach={ai ? () => ai.attach({ thread: thread.id }) : undefined}
       details={
-        inOverlay ? (
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span className="break-all font-mono">
-              {thread.path}:{thread.start}
-              {thread.end !== thread.start ? `–${thread.end}` : ''}
-            </span>
-            {!current && <span>Outdated / unplaced</span>}
-            {onNavigate && (
-              <Button variant="ghost" className="h-6 gap-1 px-2 text-xs" onClick={onNavigate}>
-                <ExternalLink className="size-3.5" />
-                View in diff
-              </Button>
-            )}
-          </div>
-        ) : undefined
+        <>
+          {inOverlay ? (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span className="break-all font-mono">
+                {thread.path}:{thread.start}
+                {thread.end !== thread.start ? `–${thread.end}` : ''}
+              </span>
+              {!current && <span>Outdated / unplaced</span>}
+              {onNavigate && (
+                <Button variant="ghost" className="h-6 gap-1 px-2 text-xs" onClick={onNavigate}>
+                  <ExternalLink className="size-3.5" />
+                  View in diff
+                </Button>
+              )}
+            </div>
+          ) : undefined}
+        </>
       }
       loadSuggestion={
         suggestion !== undefined
           ? async () => ({ contents: suggestion, before: thread.end - thread.start })
           : undefined
       }
-      pending={pending || !!gitlab?.busy}
+      pending={pending}
       resolved={thread.resolved}
-      error={error || gitlab?.error}
+      error={error}
       onEdit={(id, body) => mutate({ kind: 'edit-comment', thread: thread.id, message: id, body })}
       onDelete={(id) => mutate({ kind: 'delete-comment', thread: thread.id, message: id })}
       onResolve={() => mutate({ kind: 'resolve', thread: thread.id, resolved: !thread.resolved })}

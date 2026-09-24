@@ -866,3 +866,15 @@ describe('open MR from a recent repository', () => {
     ).rejects.toThrow('Configure GitLab')
   })
 })
+
+it('provides MR metadata and discussions to AI without exposing fetched diffs', async () => {
+  const f = await fixture()
+  expect(f.service.aiContext(f.snapshot.id)).toContain('No merge request')
+  const review = await f.select()
+  const context = JSON.parse(f.service.aiContext(f.snapshot.id))
+  expect(Object.keys(context).sort()).toEqual(['approvals', 'discussions', 'mr'])
+  expect(context.mr.title).toBe(review.mr.title)
+  expect(context.mr.description).toBe(review.mr.description)
+  expect(context.discussions).toEqual(review.discussions)
+  expect(f.service.aiContext('another-snapshot')).toContain('No merge request')
+})

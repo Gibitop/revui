@@ -444,20 +444,27 @@ export function ReviewFileCard({
               }[metadata.status] ?? 'Changed')
             : 'Unchanged'}
         </span>
-        <h2 className="wrap-anywhere font-mono group-data-[git-status=added]:text-git-added group-data-[git-status=untracked]:text-git-added group-data-[git-status=deleted]:text-git-deleted group-data-[git-status=modified]:text-git-modified group-data-[git-status=renamed]:text-git-renamed group-data-[git-status=conflicted]:text-git-conflicted">
-          {metadata && metadata.oldPath !== path ? (
-            <>
-              {metadata.oldPath}{' '}
-              <ArrowRight className="inline size-4 align-middle" aria-hidden="true" />
-              <span className="sr-only"> to </span> {path}
-            </>
-          ) : (
-            path
-          )}
+        <h2
+          dir="rtl"
+          title={metadata && metadata.oldPath !== path ? `${metadata.oldPath} → ${path}` : path}
+          className="min-w-0 truncate text-left font-mono group-data-[git-status=added]:text-git-added group-data-[git-status=untracked]:text-git-added group-data-[git-status=deleted]:text-git-deleted group-data-[git-status=modified]:text-git-modified group-data-[git-status=renamed]:text-git-renamed group-data-[git-status=conflicted]:text-git-conflicted"
+        >
+          <bdi dir="ltr">
+            {metadata && metadata.oldPath !== path ? (
+              <>
+                {metadata.oldPath}{' '}
+                <ArrowRight className="inline size-4 align-middle" aria-hidden="true" />
+                <span className="sr-only"> to </span> {path}
+              </>
+            ) : (
+              path
+            )}
+          </bdi>
         </h2>
         <Button
           variant="ghost"
           size="icon"
+          className="shrink-0"
           aria-label={`Copy relative path for ${path}`}
           title={copied ? 'Copied relative path' : 'Copy relative path'}
           onClick={() => {
@@ -488,28 +495,30 @@ export function ReviewFileCard({
         <span role="status" className="sr-only">
           {copied ? `Copied ${path}` : ''}
         </span>
-        {metadata && metadata.additions !== null && metadata.deletions !== null && (
-          <span className="flex shrink-0 gap-2 font-mono text-xs tabular-nums">
-            <span className="text-git-added" aria-label={`${metadata.additions} lines added`}>
-              +{metadata.additions}
+        <div className="ml-auto flex shrink-0 items-center gap-2.5">
+          {metadata && metadata.additions !== null && metadata.deletions !== null && (
+            <span className="flex shrink-0 gap-2 font-mono text-xs tabular-nums">
+              <span className="text-git-added" aria-label={`${metadata.additions} lines added`}>
+                +{metadata.additions}
+              </span>
+              <span className="text-git-deleted" aria-label={`${metadata.deletions} lines deleted`}>
+                −{metadata.deletions}
+              </span>
             </span>
-            <span className="text-git-deleted" aria-label={`${metadata.deletions} lines deleted`}>
-              −{metadata.deletions}
-            </span>
-          </span>
-        )}
-        <Label className="ml-auto flex items-center gap-1.5 whitespace-nowrap">
-          <Checkbox
-            aria-label={`Reviewed ${path}`}
-            disabled={!content.data || content.data.large || !record || mutation.isPending}
-            checked={pendingReviewed ?? reviewed}
-            onCheckedChange={(checked) => {
-              setPendingReviewed(checked === true)
-              mutation.mutate({ kind: 'reviewed', path, reviewed: checked === true })
-            }}
-          />
-          Reviewed
-        </Label>
+          )}
+          <Label className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+            <Checkbox
+              aria-label={`Reviewed ${path}`}
+              disabled={!content.data || content.data.large || !record || mutation.isPending}
+              checked={pendingReviewed ?? reviewed}
+              onCheckedChange={(checked) => {
+                setPendingReviewed(checked === true)
+                mutation.mutate({ kind: 'reviewed', path, reviewed: checked === true })
+              }}
+            />
+            Reviewed
+          </Label>
+        </div>
       </header>
       {metadata?.mergeConflict && (
         <p

@@ -67,6 +67,11 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
     })
     await page.getByRole('tab', { name: 'Appearance', exact: true }).focus()
     await page.keyboard.press('ArrowDown')
+    await expect(page.getByRole('tab', { name: 'GitLab', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await page.keyboard.press('ArrowDown')
     await expect(page.getByRole('tab', { name: 'Workspace', exact: true })).toHaveAttribute(
       'aria-selected',
       'true',

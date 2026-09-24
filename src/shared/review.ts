@@ -43,12 +43,13 @@ export type LocalThread = {
   createdAt: string
   updatedAt: string
   resolved: boolean
-  messages: { id: string; body: string; createdAt: string; updatedAt: string }[]
+  messages: { id: string; body: string; createdAt: string; updatedAt: string; author?: 'AI' }[]
 }
 export type ReviewRecord = { version: 1; threads: LocalThread[]; reviewed: Record<string, string> }
 export type ReviewAction =
   | {
       kind: 'thread'
+      author?: 'AI'
       path: string
       side: LocalThread['side']
       start: number
@@ -73,4 +74,12 @@ export type ContentSearch = { matches: ContentMatch[]; truncated: boolean }
 export type RevisionSuggestion = {
   value: string
   kind: 'commit' | 'branch' | 'remote' | 'tag' | 'working' | 'index'
+}
+
+export function commentPriority(body: string) {
+  const match = /^\s*\[P([0-3])\]\s*/.exec(body)
+  return {
+    priority: match ? Number(match[1]) : null,
+    body: match ? body.slice(match[0].length) : body,
+  }
 }

@@ -299,7 +299,11 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
     await expect(overlay.getByRole('textbox', { name: 'GitLab comment', exact: true })).toHaveValue(
       'General comment',
     )
-    await expect(overlay.getByRole('alert').first()).toContainText('permission denied')
+    const notification = page.getByTestId('gitlab-error-notification')
+    await expect(notification).toContainText('permission denied')
+    await expect(notification).not.toContainText('Error invoking remote method')
+    await notification.getByRole('button', { name: 'Dismiss GitLab notification' }).click()
+    await expect(notification).toHaveCount(0)
     failWrite = false
     writeGate = new Promise<void>((resolve) => {
       releaseWrite = resolve
@@ -434,7 +438,11 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
     await button.click()
     failBody = 'Batch reply'
     await overlay.getByRole('button', { name: 'Publish all local comments', exact: true }).click()
-    await expect(overlay.getByRole('alert').first()).toContainText('permission denied')
+    await expect(
+      overlay.getByRole('button', { name: 'Publish all local comments', exact: true }),
+    ).toBeEnabled()
+    await expect(notification).toHaveCount(0)
+    await expect(overlayLocal.getByRole('alert')).toHaveCount(0)
     await expect(overlayLocal).toContainText('Batch reply')
     await expect(overlayLocal).not.toContainText('Batch root')
     expect(comments.filter((body) => body === 'Batch root')).toHaveLength(1)

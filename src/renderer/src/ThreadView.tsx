@@ -1,11 +1,12 @@
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { useRef, useState, type MouseEvent, type ReactNode } from 'react'
-import { Check, MessageSquare, Pencil, Trash2, Undo2, Upload, TextQuote } from 'lucide-react'
+import { Check, MessageSquare, Pencil, Trash2, Undo2, Upload, TextQuote, Bot } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { CommentDate } from './CommentDate'
+import { commentPriority } from '../../shared/review'
 
 type Message = { id: string; author: ReactNode; date: string; body: string; editable: boolean }
 export function ThreadView({
@@ -20,6 +21,7 @@ export function ThreadView({
   onEdit,
   onDelete,
   onUpload,
+  onAttach,
   uploadDisabledReason,
   loadSuggestion,
   details,
@@ -37,6 +39,7 @@ export function ThreadView({
   onEdit: (id: string, body: string) => Promise<unknown>
   onDelete: (id: string) => Promise<unknown>
   onUpload?: (id: string) => Promise<unknown>
+  onAttach?: () => void
   uploadDisabledReason?: string
   loadSuggestion?: () => Promise<{ contents: string; before?: number }>
   details?: ReactNode
@@ -69,7 +72,7 @@ export function ThreadView({
       data-testid={source === 'Local' ? 'local-thread' : undefined}
       data-discussion-id={discussionId}
       aria-label={label}
-      className="my-2 space-y-3 rounded border bg-background p-3 font-sans text-[13px]/5 font-normal text-foreground"
+      className="my-2 w-full min-w-0 max-w-2xl space-y-3 rounded border bg-background p-3 font-sans text-[13px]/5 font-normal text-foreground"
     >
       <Dialog
         open={deleting !== undefined}
@@ -128,180 +131,224 @@ export function ThreadView({
         </DialogContent>
       </Dialog>
       {(failure || error) && <p role="alert">{failure || error}</p>}
-      {messages.map((message, index) => (
-        <div
-          key={message.id}
-          data-testid="thread-message"
-          className={`space-y-2 ${index < messages.length - 1 || reply ? 'border-b pb-2' : ''}`}
-        >
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
-            {index === 0 && (
-              <span
-                data-testid={source === 'Local' ? 'local-tag' : undefined}
-                className="rounded border px-1 text-muted-foreground"
-              >
-                {source}
-              </span>
-            )}
-            {index === 0 && resolved && (
-              <span className="inline-flex items-center gap-1 rounded border border-green-600/25 bg-green-500/10 px-1.5 text-xs text-green-700 dark:text-green-400">
-                <Check aria-hidden="true" className="size-3" />
-                Resolved
-              </span>
-            )}
-            {message.author}
-            <span aria-hidden="true">·</span>
-            <CommentDate date={message.date} />
-            <div className="ml-auto flex shrink-0 items-center gap-1">
-              {message.editable && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="size-7 p-0"
-                  aria-label="Edit"
-                  title="Edit"
-                  disabled={busy || editing === message.id}
-                  onClick={() => {
-                    setEditing(message.id)
-                    setBody(message.body)
-                  }}
+      {messages.map((message, index) => {
+        const parsed = commentPriority(message.body)
+        const colors = [
+          'border-red-600/30 bg-red-500/10 text-red-700 dark:text-red-400',
+          'border-orange-600/30 bg-orange-500/10 text-orange-700 dark:text-orange-400',
+          'border-amber-600/30 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+          'border-blue-600/30 bg-blue-500/10 text-blue-700 dark:text-blue-400',
+        ]
+        return (
+          <div
+            key={message.id}
+            data-testid="thread-message"
+            className={`space-y-2 ${index < messages.length - 1 || reply ? 'border-b pb-2' : ''}`}
+          >
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
+              {index === 0 && (
+                <span
+                  data-testid={source === 'Local' ? 'local-tag' : undefined}
+                  className="rounded border px-1 text-muted-foreground"
                 >
-                  <Pencil className="size-3.5" />
-                </Button>
+                  {source}
+                </span>
               )}
-              {index === 0 && onResolve && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="size-7 p-0"
-                  aria-label={resolved ? 'Reopen' : 'Resolve'}
-                  title={resolved ? 'Reopen' : 'Resolve'}
-                  disabled={busy}
-                  onClick={() => void run(onResolve)}
-                >
-                  {resolved ? <Undo2 className="size-3.5" /> : <Check className="size-3.5" />}
-                </Button>
+              {index === 0 && resolved && (
+                <span className="inline-flex items-center gap-1 rounded border border-green-600/25 bg-green-500/10 px-1.5 text-xs text-green-700 dark:text-green-400">
+                  <Check aria-hidden="true" className="size-3" />
+                  Resolved
+                </span>
               )}
-              {onUpload && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="size-7 p-0"
-                  aria-label="Upload to GitLab"
-                  title={uploadDisabledReason || 'Upload to GitLab'}
-                  disabled={busy || !!uploadDisabledReason}
-                  onClick={() => void run(() => onUpload(message.id))}
-                >
-                  <Upload className="size-3.5" />
-                </Button>
-              )}
-              {message.editable && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="size-7 p-0 hover:text-git-deleted"
-                  aria-label="Delete comment"
-                  title="Delete comment"
-                  disabled={busy}
-                  onClick={(event) => {
-                    deleteTrigger.current = event.currentTarget
-                    setFailure('')
-                    setDeleting(message.id)
-                  }}
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              )}
-            </div>
-          </div>
-          {index === 0 && details}
-          {editing === message.id && !(source === 'GitLab' && working) ? (
-            <div className="space-y-2" data-review-editor>
-              {loadSuggestion && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-7 gap-1 px-2 text-xs"
-                  disabled={busy}
-                  onClick={() =>
-                    void run(async () => {
-                      const suggestion = await loadSuggestion()
-                      setBody(
-                        (current) =>
-                          `${current}${current ? '\n\n' : ''}\`\`\`suggestion${suggestion.before === undefined ? '' : `:-${suggestion.before}+0`}\n${suggestion.contents}\n\`\`\``,
-                      )
-                    })
+              {parsed.priority !== null && (
+                <span
+                  data-testid="comment-priority"
+                  title={
+                    ['Critical', 'High priority', 'Normal priority', 'Low priority'][
+                      parsed.priority
+                    ]
                   }
+                  className={`rounded border px-1.5 text-xs font-semibold ${colors[parsed.priority]}`}
                 >
-                  <TextQuote className="size-3.5" />
-                  Insert suggestion
-                </Button>
+                  P{parsed.priority}
+                </span>
               )}
-              <Textarea
-                disabled={busy}
-                aria-label={`Edit ${source === 'Local' ? 'local' : 'GitLab'} comment`}
-                value={body}
-                onChange={(event) => setBody(event.target.value)}
-                maxLength={100000}
-              />
-              <div className="flex gap-2">
-                <Button
-                  disabled={busy || !body.trim()}
-                  onClick={() =>
-                    void run(() => onEdit(message.id, body)).then((result) => {
-                      if (result !== false) setEditing(undefined)
-                    })
-                  }
-                >
-                  Save edit
-                </Button>
-                <Button variant="ghost" disabled={busy} onClick={() => setEditing(undefined)}>
-                  Cancel
-                </Button>
+              {message.author}
+              <span aria-hidden="true">·</span>
+              <CommentDate date={message.date} />
+              <div className="ml-auto flex shrink-0 items-center gap-1">
+                {index === 0 && onAttach && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="size-7 p-0"
+                    aria-label="Attach thread to Codex"
+                    title="Attach thread to Codex"
+                    onClick={onAttach}
+                  >
+                    <Bot className="size-3.5" />
+                  </Button>
+                )}
+                {message.editable && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="size-7 p-0"
+                    aria-label="Edit"
+                    title="Edit"
+                    disabled={busy || editing === message.id}
+                    onClick={() => {
+                      setEditing(message.id)
+                      setBody(message.body)
+                    }}
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                )}
+                {index === 0 && onResolve && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="size-7 p-0"
+                    aria-label={resolved ? 'Reopen' : 'Resolve'}
+                    title={resolved ? 'Reopen' : 'Resolve'}
+                    disabled={busy}
+                    onClick={() => void run(onResolve)}
+                  >
+                    {resolved ? <Undo2 className="size-3.5" /> : <Check className="size-3.5" />}
+                  </Button>
+                )}
+                {onUpload && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="size-7 p-0"
+                    aria-label="Upload to GitLab"
+                    title={uploadDisabledReason || 'Upload to GitLab'}
+                    disabled={busy || !!uploadDisabledReason}
+                    onClick={() => void run(() => onUpload(message.id))}
+                  >
+                    <Upload className="size-3.5" />
+                  </Button>
+                )}
+                {message.editable && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="size-7 p-0 hover:text-git-deleted"
+                    aria-label="Delete comment"
+                    title="Delete comment"
+                    disabled={busy}
+                    onClick={(event) => {
+                      deleteTrigger.current = event.currentTarget
+                      setFailure('')
+                      setDeleting(message.id)
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                )}
               </div>
             </div>
-          ) : (
-            <div className="markdown wrap-anywhere">
-              <Markdown
-                remarkPlugins={[remarkGfm]}
-                skipHtml
-                components={{
-                  img: ({ alt }) => <span>{alt}</span>,
-                  a: ({ href, children }) => {
-                    let url: URL
-                    try {
-                      if (!href) return <span>{children}</span>
-                      url = new URL(href, linkBase)
-                      if (
-                        !['https:', 'http:'].includes(url.protocol) ||
-                        url.username ||
-                        url.password
-                      )
-                        return <span>{children}</span>
-                    } catch {
-                      return <span>{children}</span>
+            {index === 0 && details}
+            {editing === message.id && !(source === 'GitLab' && working) ? (
+              <div className="space-y-2" data-review-editor>
+                {loadSuggestion && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-7 gap-1 px-2 text-xs"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(async () => {
+                        const suggestion = await loadSuggestion()
+                        setBody(
+                          (current) =>
+                            `${current}${current ? '\n\n' : ''}\`\`\`suggestion${suggestion.before === undefined ? '' : `:-${suggestion.before}+0`}\n${suggestion.contents}\n\`\`\``,
+                        )
+                      })
                     }
-                    const open = (event: MouseEvent<HTMLAnchorElement>) => {
-                      event.preventDefault()
-                      if (event.type === 'auxclick' && event.button !== 1) return
-                      void window.desktop
-                        .openWebLink(url.href)
-                        .catch((error: Error) => setFailure(error.message))
+                  >
+                    <TextQuote className="size-3.5" />
+                    Insert suggestion
+                  </Button>
+                )}
+                <Textarea
+                  disabled={busy}
+                  aria-label={`Edit ${source === 'Local' ? 'local' : 'GitLab'} comment`}
+                  value={body}
+                  onChange={(event) => setBody(event.target.value)}
+                  maxLength={100000}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    disabled={busy || !body.trim()}
+                    onClick={() =>
+                      void run(() => onEdit(message.id, body)).then((result) => {
+                        if (result !== false) setEditing(undefined)
+                      })
                     }
-                    return (
-                      <a href={url.href} onClick={open} onAuxClick={open}>
+                  >
+                    Save edit
+                  </Button>
+                  <Button variant="ghost" disabled={busy} onClick={() => setEditing(undefined)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="markdown text-sm leading-[1.7] wrap-anywhere">
+                <Markdown
+                  remarkPlugins={[remarkGfm]}
+                  skipHtml
+                  components={{
+                    img: ({ alt }) => <span>{alt}</span>,
+                    code: ({ className, children }) => (
+                      <code className={className}>
+                        {className?.startsWith('language-suggestion') && (
+                          <span className="mb-2 block border-b pb-2 font-sans text-xs font-medium text-muted-foreground">
+                            Suggested change
+                          </span>
+                        )}
                         {children}
-                      </a>
-                    )
-                  },
-                }}
-              >
-                {message.body}
-              </Markdown>
-            </div>
-          )}
-        </div>
-      ))}
+                      </code>
+                    ),
+                    a: ({ href, children }) => {
+                      let url: URL
+                      try {
+                        if (!href) return <span>{children}</span>
+                        url = new URL(href, linkBase)
+                        if (
+                          !['https:', 'http:'].includes(url.protocol) ||
+                          url.username ||
+                          url.password
+                        )
+                          return <span>{children}</span>
+                      } catch {
+                        return <span>{children}</span>
+                      }
+                      const open = (event: MouseEvent<HTMLAnchorElement>) => {
+                        event.preventDefault()
+                        if (event.type === 'auxclick' && event.button !== 1) return
+                        void window.desktop
+                          .openWebLink(url.href)
+                          .catch((error: Error) => setFailure(error.message))
+                      }
+                      return (
+                        <a href={url.href} onClick={open} onAuxClick={open}>
+                          {children}
+                        </a>
+                      )
+                    },
+                  }}
+                >
+                  {parsed.body}
+                </Markdown>
+              </div>
+            )}
+          </div>
+        )
+      })}
       {reply && (
         <details
           className="group/reply"

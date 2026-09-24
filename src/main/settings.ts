@@ -1,3 +1,4 @@
+import { defaultAITasks } from '../shared/ai'
 import { ideChoices } from '../shared/workspace'
 import { commandsSchema } from './workspace'
 import { mkdir, readFile, rename, writeFile, rm } from 'node:fs/promises'
@@ -6,6 +7,26 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { PreferencesPatch, Settings } from '../shared/desktop'
 
+const modelSettingsSchema = z
+  .object({
+    model: z
+      .string()
+      .trim()
+      .max(200)
+      .refine((value) => !/[\r\n\0]/.test(value)),
+    effort: z
+      .string()
+      .max(40)
+      .regex(/^[a-z]*$/),
+  })
+  .strict()
+const aiTasksSchema = z
+  .object({
+    chat: modelSettingsSchema,
+    review: modelSettingsSchema,
+    order: modelSettingsSchema,
+  })
+  .strict()
 const preferencesSchema = z
   .object({
     preferredIDE: z.enum(
@@ -17,9 +38,17 @@ const preferencesSchema = z
     diffLayout: z.enum(['split', 'unified']),
     reviewLayout: z.enum(['continuous', 'focused']),
     wrapLines: z.boolean(),
+    fileView: z.enum(['tree', 'flat']),
     sidebarCollapsed: z.boolean(),
     sidebarWidth: z.number().int().min(190).max(600),
+    aiTasks: aiTasksSchema,
+    aiLanguage: z
+      .string()
+      .trim()
+      .max(100)
+      .refine((value) => !/[\r\n\0]/.test(value)),
     aiPanelOpen: z.boolean(),
+    aiPanelWidth: z.number().int().min(380).max(800),
   })
   .strict()
 export const preferencesPatchSchema = preferencesSchema.partial()
@@ -29,8 +58,18 @@ const settingsSchema = preferencesSchema
     workspaceCommands: commandsSchema.default({ script: '' }),
     repositoryCommands: z.record(z.string(), commandsSchema).default({}),
     wrapLines: z.boolean().default(false),
+    fileView: preferencesSchema.shape.fileView.default('tree'),
     sidebarCollapsed: z.boolean().default(false),
     sidebarWidth: z.number().int().min(190).max(600).default(270),
+    aiPanelWidth: z
+      .number()
+      .int()
+      .min(280)
+      .max(800)
+      .default(380)
+      .transform((width) => Math.max(380, width)),
+    aiTasks: aiTasksSchema.default(defaultAITasks),
+    aiLanguage: preferencesSchema.shape.aiLanguage.default(''),
     version: z.literal(1),
     recentRepositories: z.array(z.string().min(1)).max(10),
   })
@@ -41,14 +80,18 @@ export class SettingsStore {
     preferredIDE: 'vscode',
     workspaceCommands: { script: '' },
     repositoryCommands: {},
+    aiTasks: structuredClone(defaultAITasks),
+    aiLanguage: '',
     version: 1,
     theme: 'system',
     diffLayout: 'split',
     reviewLayout: 'continuous',
     sidebarWidth: 270,
     sidebarCollapsed: false,
+    fileView: 'tree',
     wrapLines: false,
     aiPanelOpen: false,
+    aiPanelWidth: 380,
     recentRepositories: [],
   }
   private queue: Promise<unknown> = Promise.resolve()

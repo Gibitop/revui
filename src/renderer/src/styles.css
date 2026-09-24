@@ -215,6 +215,137 @@ textarea {
   margin-top: 8px;
 }
 
+/* Chat Markdown needs its own typography after Tailwind's element reset. */
+.prose-review {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.prose-review > * + * {
+  margin-top: 0.85em;
+}
+.prose-review :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  line-height: 1.35;
+  text-wrap: balance;
+}
+.prose-review h1 {
+  font-size: 1.3em;
+}
+.prose-review h2 {
+  font-size: 1.15em;
+}
+.prose-review :is(h3, h4, h5, h6) {
+  font-size: 1em;
+}
+.prose-review > :first-child {
+  margin-top: 0;
+}
+.prose-review > :last-child {
+  margin-bottom: 0;
+}
+.prose-review :is(ul, ol) {
+  padding-left: 1.5em;
+}
+.prose-review ul {
+  list-style: disc;
+}
+.prose-review ol {
+  list-style: decimal;
+}
+.prose-review ul ul {
+  list-style: circle;
+}
+.prose-review li + li {
+  margin-top: 0.35em;
+}
+.prose-review li > :is(p, ul, ol) + * {
+  margin-top: 0.5em;
+}
+.prose-review li::marker {
+  color: var(--muted-foreground);
+}
+.prose-review .contains-task-list {
+  list-style: none;
+  padding-left: 0.25em;
+}
+.prose-review .task-list-item input {
+  margin-right: 0.5em;
+}
+.prose-review code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  border-radius: 4px;
+  padding: 0.12em 0.35em;
+  background: var(--muted);
+  box-decoration-break: clone;
+}
+.prose-review pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  line-height: 1.6;
+  overflow-wrap: normal;
+}
+.prose-review pre code {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+.prose-review blockquote {
+  padding: 0.25em 0 0.25em 1em;
+  border-left: 3px solid var(--border);
+  color: var(--muted-foreground);
+}
+.prose-review blockquote > * + * {
+  margin-top: 0.75em;
+}
+.prose-review hr {
+  margin-block: 1.5em;
+  border-color: var(--border);
+}
+.prose-review .chat-table {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.prose-review table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+.prose-review :is(th, td) {
+  min-width: 7rem;
+  padding: 8px 10px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.prose-review th {
+  background: var(--muted);
+  font-weight: 600;
+  text-align: left;
+}
+.prose-review tbody tr:last-child td {
+  border-bottom: 0;
+}
+.prose-review a {
+  text-underline-offset: 3px;
+}
+.prose-review a:focus-visible,
+.prose-review pre:focus-visible,
+.prose-review .chat-table:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 /* Match the built-in @pierre/trees icon palette in the flat list. */
 .flat-file-list {
   --trees-icon-gray: light-dark(#84848a, #adadb1);
@@ -299,4 +430,12 @@ textarea {
 
 .flat-file-list [data-git-status='conflicted'] {
   color: var(--git-conflicted);
+}
+
+/* Touch devices have no hover; keep message actions reachable. */
+@media (hover: none) {
+  .chat-message-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }

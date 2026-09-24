@@ -42,4 +42,5 @@ export async function registerGitLabIPC(
     if (request.kind === 'configure' || request.kind === 'disconnect') loadError = null
     return result
   })
+  return gitlab
 }

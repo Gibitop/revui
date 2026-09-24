@@ -1,3 +1,5 @@
+import { AIReviewProvider, AIReviewButton } from './AIReview'
+import type { AIState } from '../../shared/ai'
 import type { GitLabReview } from '../../shared/gitlab'
 import { GitLabProvider, GitLabButton } from './GitLab'
 import { WorkspaceTools } from './WorkspaceTools'
@@ -89,6 +91,7 @@ function ReviewSession({
   initial: Comparison
   initialMr?: number
 }) {
+  const [aiState, setAIState] = useState<AIState>()
   const [mrIid, setMrIid] = useState(initialMr)
   const [gitlabReview, setGitlabReview] = useState<GitLabReview>()
   const [initialComparison] = useState(initial)
@@ -169,9 +172,16 @@ function ReviewSession({
   const comparisonChange = useRef(0)
   const [selected, setSelected] = useState('')
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null)
+  const workspaceTools = useRef<{ initialize: () => void }>(null)
+  const [workspaceStatus, setWorkspaceStatus] = useState<{
+    snapshot: string
+    ready: boolean
+    busy: boolean
+  }>()
 
   const [scrollTarget, setScrollTarget] = useState<{ path: string } | null>(null)
   const [filter, setFilter] = useState('changed')
+  const [fileOrder, setFileOrder] = useState('fs')
   const [search, setSearch] = useState('')
   const [threadVisit, setThreadVisit] = useState(0)
   const [threadFocus, setThreadFocus] = useState<string | null>(null)
@@ -190,6 +200,7 @@ function ReviewSession({
     retry: false,
   })
   useEffect(() => {
+    setFileOrder('fs')
     setSelected(snapshot.data?.files[0]?.path ?? '')
     setActiveWorkspace(null)
     setScrollTarget(null)
@@ -201,10 +212,16 @@ function ReviewSession({
       threadFocus &&
       records.data &&
       !records.data.threads.some((thread) => thread.id === threadFocus) &&
-      !gitlabReview?.discussions.some((thread) => thread.id === threadFocus)
+      !gitlabReview?.discussions.some((thread) => thread.id === threadFocus) &&
+      !aiState?.record.findings.some(
+        (finding) =>
+          finding.id === threadFocus &&
+          !aiState.record.stale &&
+          (finding.state === 'pending' || finding.state === 'accepted'),
+      )
     )
       setThreadFocus(null)
-  }, [records.data, threadFocus, gitlabReview])
+  }, [records.data, threadFocus, gitlabReview, aiState])
   const filesByPath = useMemo(
     () => new Map(snapshot.data?.files.map((file) => [file.path, file])),
     [snapshot.data],
@@ -237,7 +254,16 @@ function ReviewSession({
       const file = snapshot.data?.files.find((file) =>
         position.new_line ? file.path === position.new_path : file.oldPath === position.old_path,
       )
-      return file ? [{ id: discussion.id, path: file.path, resolved: note.resolved }] : []
+      return file
+        ? [
+            {
+              id: discussion.id,
+              path: file.path,
+              resolved: note.resolved,
+              start: position.new_line ?? position.old_line!,
+            },
+          ]
+        : []
     })
   }, [gitlabReview, snapshot.data])
   const unresolved = [...(records.data?.threads ?? []), ...remoteThreads].filter(
@@ -256,8 +282,31 @@ function ReviewSession({
         : filter === 'unresolved'
           ? [...unresolvedPaths]
           : (snapshot.data?.files.map((file) => file.path) ?? [])
-    return paths.filter((path) => path.toLowerCase().includes(search.toLowerCase()))
-  }, [snapshot.data, filterThreads, remoteThreads, filter, search])
+    const orderedPaths =
+      fileOrder === 'ai'
+        ? aiState?.snapshot === snapshot.data?.id &&
+          !aiState?.order.running &&
+          !aiState?.order.error
+          ? (
+              aiState?.record.walkthrough.flatMap((section) => {
+                if (settings.fileView === 'flat') return section.paths
+                const included = new Set(section.paths)
+                return snapshot.data?.paths.filter((path) => included.has(path)) ?? []
+              }) ?? []
+            ).filter((path) => paths.includes(path))
+          : []
+        : paths
+    return orderedPaths.filter((path) => path.toLowerCase().includes(search.toLowerCase()))
+  }, [
+    snapshot.data,
+    filterThreads,
+    remoteThreads,
+    filter,
+    search,
+    fileOrder,
+    settings.fileView,
+    aiState,
+  ])
   const totals = useMemo(() => {
     const included = new Set(paths)
     return (snapshot.data?.files ?? []).reduce(
@@ -271,6 +320,18 @@ function ReviewSession({
       { additions: 0, deletions: 0 },
     )
   }, [paths, snapshot.data])
+  const threadPaths = fileOrder === 'ai' ? paths : [...(snapshot.data?.paths ?? []), ...paths]
+  const threadOrder = new Map([...new Set(threadPaths)].map((path, index) => [path, index]))
+  const navigableThreads = unresolved
+    .filter((thread) => filter !== 'unresolved' || paths.includes(thread.path))
+    .sort(
+      (a, b) =>
+        (threadOrder.get(a.path) ?? threadPaths.length) -
+          (threadOrder.get(b.path) ?? threadPaths.length) ||
+        a.path.localeCompare(b.path, undefined, { numeric: true }) ||
+        a.start - b.start ||
+        a.id.localeCompare(b.id),
+    )
   const select = (path: string) => {
     if (!paths.includes(path)) {
       setFilter('changed')
@@ -278,20 +339,41 @@ function ReviewSession({
     }
     setSelected(path)
     setSearchHit(null)
-    setThreadFocus(null)
-    setScrollTarget({ path })
+    const thread =
+      filter === 'unresolved' ? navigableThreads.find((thread) => thread.path === path) : undefined
+    setThreadFocus(thread?.id ?? null)
+    if (thread) setThreadVisit((value) => value + 1)
+    setScrollTarget(thread ? null : { path })
   }
+  const navigationPaths = fileOrder === 'ai' ? paths : changed
   const navigate = (direction: number, threads = false) => {
-    if (threads) {
-      if (!unresolved.length) return
-      const index = unresolved.findIndex((thread) => thread.id === threadFocus)
-      const thread = unresolved[(index + direction + unresolved.length) % unresolved.length]
+    if (threads || filter === 'unresolved') {
+      if (!navigableThreads.length) return
+      const index = navigableThreads.findIndex((thread) => thread.id === threadFocus)
+      const thread =
+        navigableThreads[
+          index < 0
+            ? direction > 0
+              ? 0
+              : navigableThreads.length - 1
+            : (index + direction + navigableThreads.length) % navigableThreads.length
+        ]
+      setScrollTarget(null)
       setSelected(thread.path)
       setSearchHit(null)
       setThreadFocus(thread.id)
       setThreadVisit((value) => value + 1)
-    } else if (changed.length) {
-      select(changed[(changed.indexOf(selected) + direction + changed.length) % changed.length])
+    } else if (navigationPaths.length) {
+      const index = navigationPaths.indexOf(selected)
+      select(
+        navigationPaths[
+          index < 0
+            ? direction > 0
+              ? 0
+              : navigationPaths.length - 1
+            : (index + direction + navigationPaths.length) % navigationPaths.length
+        ],
+      )
     }
   }
   const onReviewKey = useEffectEvent((event: KeyboardEvent) => {
@@ -348,12 +430,16 @@ function ReviewSession({
     return () => window.removeEventListener('keydown', key)
   }, [])
 
+  const threadFocused = !!threadFocus && !paths.includes(selected)
   const visiblePaths =
-    settings.reviewLayout === 'focused' || !filesByPath.has(selected) || threadFocus || searchHit
+    settings.reviewLayout === 'focused' ||
+    threadFocused ||
+    searchHit ||
+    (!filesByPath.has(selected) && !threadFocus)
       ? selected
         ? [selected]
         : []
-      : paths.filter((path) => filesByPath.has(path))
+      : paths.filter((path) => filesByPath.has(path) || path === selected)
 
   useEffect(() => {
     if (!scrollTarget || threadFocus || searchHit) return
@@ -429,6 +515,8 @@ function ReviewSession({
             {snapshot.data && (
               <WorkspaceTools
                 key={snapshot.data.id}
+                ref={workspaceTools}
+                onStatus={setWorkspaceStatus}
                 snapshot={snapshot.data}
                 active={activeWorkspace}
                 setActive={setActiveWorkspace}
@@ -444,8 +532,7 @@ function ReviewSession({
         snapshot={snapshot.data}
         onReviewChange={setGitlabReview}
         onNavigateThread={(path, discussion) => {
-          setFilter('all')
-          setSearch('')
+          setScrollTarget(null)
           setSelected(path)
           setSearchHit(null)
           setThreadFocus(discussion)
@@ -483,79 +570,118 @@ function ReviewSession({
                 hasHit={!!searchHit}
               />
               <GitLabButton />
+              {snapshot.data && (
+                <AIReviewButton
+                  open={settings.aiPanelOpen}
+                  onClick={() => preferences({ aiPanelOpen: !settings.aiPanelOpen })}
+                />
+              )}
             </>,
             searchToolbar,
           )}
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <ReviewSidebar
-            snapshot={snapshot.data}
+          <AIReviewProvider
+            workspace={{
+              ready: workspaceStatus?.snapshot === snapshot.data?.id && !!workspaceStatus?.ready,
+              busy: workspaceStatus?.snapshot === snapshot.data?.id && !!workspaceStatus?.busy,
+              initialize: () => workspaceTools.current?.initialize(),
+            }}
             settings={settings}
             preferences={preferences}
-            filter={filter}
-            setFilter={setFilter}
-            search={search}
-            setSearch={setSearch}
-            searchRef={searchRef}
-            paths={paths}
-            totals={totals}
-            selected={selected}
-            select={select}
-            theme={theme}
-            canNavigate={!!changed.length}
-            navigate={(direction) => navigate(direction)}
-            threadFocused={!!threadFocus}
-            onShowAll={() => setThreadFocus(null)}
-          />
-          <section className="flex min-w-0 flex-1 flex-col" aria-label="Code review">
-            {snapshot.isPending && (
-              <p className="p-6">
-                Loading comparison…{' '}
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    const current = request.current
-                    request.current = null
-                    if (current) void window.desktop.cancelComparison(current.id)
-                    setSnapshot({ isPending: false })
-                  }}
-                >
-                  Cancel
-                </Button>
-              </p>
-            )}
-            {(snapshot.error || records.error) && (
-              <p className="p-6" role="alert">
-                {snapshot.error?.message ?? records.error?.message}
-              </p>
-            )}
-            {snapshot.data && !visiblePaths.length && (
-              <p className="p-6">
-                {paths.length ? 'Select a file to review.' : 'No files match this view.'}
-              </p>
-            )}
+            snapshot={snapshot.data}
+            open={settings.aiPanelOpen}
+            onOpen={(aiPanelOpen) => preferences({ aiPanelOpen })}
+            onState={setAIState}
+            onFile={(path, line) => {
+              select(path)
+              if (!filesByPath.has(path)) {
+                setFilter('all')
+                setFileOrder('fs')
+              } else if (!paths.includes(path) && fileOrder === 'ai') setFileOrder('fs')
+              if (line && filesByPath.get(path)?.status !== 'D')
+                setSearchHit({ path, line, text: '', ranges: [], key: Date.now() })
+            }}
+          >
+            <ReviewSidebar
+              order={fileOrder}
+              setOrder={setFileOrder}
+              snapshot={snapshot.data}
+              settings={settings}
+              preferences={preferences}
+              filter={filter}
+              setFilter={setFilter}
+              search={search}
+              setSearch={setSearch}
+              searchRef={searchRef}
+              paths={paths}
+              totals={totals}
+              selected={selected}
+              select={select}
+              theme={theme}
+              canNavigate={
+                filter === 'unresolved' ? !!navigableThreads.length : !!navigationPaths.length
+              }
+              navigate={(direction) => navigate(direction)}
+              threadFocused={threadFocused}
+              onShowAll={() => setThreadFocus(null)}
+            />
+            <section className="flex min-w-0 flex-1 flex-col" aria-label="Code review">
+              {snapshot.isPending && (
+                <p className="p-6">
+                  Loading comparison…{' '}
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      const current = request.current
+                      request.current = null
+                      if (current) void window.desktop.cancelComparison(current.id)
+                      setSnapshot({ isPending: false })
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </p>
+              )}
+              {(snapshot.error || records.error) && (
+                <p className="p-6" role="alert">
+                  {snapshot.error?.message ?? records.error?.message}
+                </p>
+              )}
+              {snapshot.data && !visiblePaths.length && (
+                <p className="p-6">
+                  {fileOrder === 'ai' &&
+                  !aiState?.order.error &&
+                  (!aiState || aiState.order.running || !aiState.record.walkthroughKey)
+                    ? 'Your review guide is being prepared. You can switch to Filesystem order to browse now.'
+                    : paths.length
+                      ? 'Select a file to review.'
+                      : 'No files match this view.'}
+                </p>
+              )}
 
-            <div data-testid="diff-scroll" className="flex min-h-0 flex-1">
-              <Virtualizer className="min-h-0 flex-1 overflow-auto overscroll-contain">
-                {snapshot.data &&
-                  visiblePaths.map((path) => (
-                    <ReviewFileCard
-                      key={`${snapshot.data!.id}:${path}`}
-                      workspaceId={activeWorkspace}
-                      snapshot={snapshot.data!}
-                      path={path}
-                      record={records.data}
-                      metadata={filesByPath.get(path)}
-                      threads={threadsByPath.get(path) ?? []}
-                      settings={settings}
-                      theme={theme}
-                      threadFocus={threadFocus}
-                      threadVisit={threadVisit}
-                      searchHit={searchHit?.path === path ? searchHit : null}
-                    />
-                  ))}
-              </Virtualizer>
-            </div>
-          </section>
+              <div data-testid="diff-scroll" className="flex min-h-0 flex-1">
+                <Virtualizer className="min-h-0 flex-1 overflow-auto overscroll-contain">
+                  {snapshot.data &&
+                    visiblePaths.map((path) => (
+                      <ReviewFileCard
+                        key={`${snapshot.data!.id}:${path}`}
+                        workspaceId={activeWorkspace}
+                        snapshot={snapshot.data!}
+                        path={path}
+                        record={records.data}
+                        metadata={filesByPath.get(path)}
+                        threads={threadsByPath.get(path) ?? []}
+                        settings={settings}
+                        theme={theme}
+                        threadFocus={path === selected ? threadFocus : null}
+                        threadVisit={threadVisit}
+                        searchHit={searchHit?.path === path ? searchHit : null}
+                      />
+                    ))}
+                </Virtualizer>
+              </div>
+            </section>
+          </AIReviewProvider>
         </div>
       </GitLabProvider>
     </>

@@ -1,3 +1,4 @@
+import { registerAIIPC } from './ai-ipc'
 import { registerGitLabIPC } from './gitlab-ipc'
 import { registerWorkspaceIPC } from './workspace-ipc'
 import {
@@ -188,8 +189,12 @@ if (!app.requestSingleInstanceLock()) {
         assertSender(event)
         return clipboard.writeText(z.string().min(1).max(32768).parse(path))
       })
+      ipcMain.handle(channels.copyText, (event, text: unknown) => {
+        assertSender(event)
+        return clipboard.writeText(z.string().max(100000).parse(text))
+      })
       const reviews = new ReviewService(app.getPath('userData'))
-      await registerGitLabIPC(
+      const gitlab = await registerGitLabIPC(
         app.getPath('userData'),
         reviews,
         assertSender,
@@ -233,6 +238,7 @@ if (!app.requestSingleInstanceLock()) {
         channels.openComparison,
         (event, repository: unknown, comparison: unknown, requestId: unknown, refresh: unknown) => {
           assertSender(event)
+          ai.close()
           return reviews.open(
             repositoryPath(repository),
             comparisonSchema.parse(comparison),
@@ -283,7 +289,18 @@ if (!app.requestSingleInstanceLock()) {
         assertSender,
         () => window,
       )
+      const ai = registerAIIPC(
+        app.getPath('userData'),
+        reviews,
+        workspaceTools.workspaces,
+        assertSender,
+        () => window,
+        () => settings.get().aiTasks,
+        () => settings.get().aiLanguage,
+        (snapshot) => gitlab.aiContext(snapshot),
+      )
       app.on('before-quit', () => {
+        ai.close()
         workspaceTools.stopScripts()
       })
       createWindow()
@@ -302,10 +319,7 @@ if (!app.requestSingleInstanceLock()) {
                 .map((record) => record.repository),
             ),
           ]
-          if (!repositories.length) {
-            workspaceTools.stopScripts()
-            return
-          }
+          if (!repositories.length) workspaceTools.stopScripts()
           event.preventDefault()
           if (prompting) return
           prompting = true
@@ -316,6 +330,8 @@ if (!app.requestSingleInstanceLock()) {
                   quitting = false
                   return
                 }
+              await ai.close()
+              await ai.flush()
               allowed = true
               if (quitting) app.quit()
               else current.close()

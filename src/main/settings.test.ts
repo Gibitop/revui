@@ -166,3 +166,32 @@ it('migrates global and repository setup scripts to the current machine command'
   expect(reopened.get().repositoryCommands).toEqual(store.get().repositoryCommands)
   expect(await readFile(join(directory, 'settings.json'), 'utf8')).not.toContain('"windows":')
 })
+
+it('migrates old settings and persists independent AI task choices', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'revui-ai-settings-'))
+  directories.push(directory)
+  const store = new SettingsStore(directory)
+  const legacy: any = store.get()
+  delete legacy.aiTasks
+  delete legacy.aiLanguage
+  delete legacy.fileView
+  await writeFile(join(directory, 'settings.json'), JSON.stringify(legacy))
+  await store.load()
+  expect(store.warning).toBeNull()
+  expect(store.get().aiLanguage).toBe('')
+  expect(store.get().fileView).toBe('tree')
+  expect(store.get().aiTasks.chat).toEqual({ model: '', effort: '' })
+  const tasks = { ...store.get().aiTasks, review: { model: 'review-model', effort: 'high' } }
+  await store.updatePreferences({ aiTasks: tasks, aiLanguage: 'Serbian', fileView: 'flat' })
+  await store.updatePreferences({ theme: 'dark' })
+  const reopened = new SettingsStore(directory)
+  await reopened.load()
+  expect(reopened.get().aiTasks).toEqual(tasks)
+  expect(reopened.get().aiLanguage).toBe('Serbian')
+  expect(reopened.get().fileView).toBe('flat')
+  expect(
+    preferencesPatchSchema.safeParse({
+      aiTasks: { ...tasks, chat: { model: 'x', effort: 'not valid' } },
+    }).success,
+  ).toBe(false)
+})

@@ -136,7 +136,35 @@ test('long-file thread navigation stays inside the review pane; native copy and 
         .toBeGreaterThan(5000)
       await expect(file.locator('[data-line="600"]').last()).toBeVisible()
       await expect(file.getByText('Review this distant line')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'All changes', exact: true })).toHaveCount(0)
     }
+    await page.getByRole('button', { name: 'Filter files', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Unresolved threads', exact: true }).click()
+    for (const action of ['select', 'next', 'previous', 'keyboard']) {
+      await page.locator('[data-testid="diff-scroll"] > div').evaluate((node) => {
+        node.scrollTop = 0
+      })
+      if (action === 'select') await page.getByRole('treeitem', { name: /long.ts/ }).click()
+      else if (action === 'keyboard') {
+        await page.getByRole('button', { name: 'Next thread', exact: true }).focus()
+        await page.keyboard.press('ArrowRight')
+      } else
+        await page
+          .getByRole('button', {
+            name: action === 'next' ? 'Next thread' : 'Previous thread',
+            exact: true,
+          })
+          .click()
+      await expect
+        .poll(() =>
+          page.locator('[data-testid="diff-scroll"] > div').evaluate((node) => node.scrollTop),
+        )
+        .toBeGreaterThan(5000)
+      await expect(file.getByText('Review this distant line')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'All changes', exact: true })).toHaveCount(0)
+    }
+    await page.getByRole('button', { name: 'Filter files', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Changed files', exact: true }).click()
     await file.getByRole('button', { name: 'Delete comment' }).click()
     await page
       .getByRole('dialog', { name: 'Delete comment?' })
@@ -226,8 +254,17 @@ test('file-tree navigation stays aligned as distant diffs load and yields to man
     const nextUnloadedPath = await page
       .getByRole('article')
       .filter({ hasText: 'Scroll to load file' })
-      .first()
-      .getAttribute('aria-label')
+      .evaluateAll((elements) => {
+        // IntersectionObserver may not have marked the visible cards as loading yet.
+        // Choose a genuinely offscreen card for this preloading assertion.
+        const bottom = document
+          .querySelector('[data-testid="diff-scroll"] > div')!
+          .getBoundingClientRect().bottom
+        return elements
+          .find((element) => element.getBoundingClientRect().top > bottom)
+          ?.getAttribute('aria-label')
+      })
+    expect(nextUnloadedPath).toBeTruthy()
     const nextUnloaded = page.getByRole('article', { name: nextUnloadedPath!, exact: true })
     await nextUnloaded.evaluate((element) => {
       const pane = document.querySelector('[data-testid="diff-scroll"] > div')!
@@ -476,7 +513,6 @@ test('unresolved threads remain accessible after an untracked file disappears', 
     await page.getByRole('button', { name: 'Filter files', exact: true }).click()
     await page.getByRole('menuitemradio', { name: 'Unresolved threads', exact: true }).click()
     await page.getByRole('treeitem', { name: /temporary.txt/ }).click()
-    await file.getByText('1 outdated threads — preserved from earlier content').click()
     await expect(file.getByText('Keep this unresolved note')).toBeVisible()
     await file.getByRole('button', { name: 'Resolve', exact: true }).click()
     await expect(page.getByRole('treeitem', { name: /temporary.txt/ })).toHaveCount(0)

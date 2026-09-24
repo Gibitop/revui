@@ -2,6 +2,16 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { channels, type DesktopAPI } from '../shared/desktop'
 
 const desktop: DesktopAPI = {
+  aiModels: () => ipcRenderer.invoke(channels.aiModels),
+  ai: (request) => ipcRenderer.invoke(channels.ai, request),
+  onAIChanged: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: Parameters<typeof listener>[0]) =>
+      listener(state)
+    ipcRenderer.on(channels.aiChanged, handler)
+    return () => {
+      ipcRenderer.removeListener(channels.aiChanged, handler)
+    }
+  },
   gitlab: (request) => ipcRenderer.invoke(channels.gitlab, request),
   workspaceAction: (...args) => ipcRenderer.invoke(channels.workspaceAction, ...args),
   findWorkspace: (...args) => ipcRenderer.invoke(channels.findWorkspace, ...args),
@@ -24,6 +34,7 @@ const desktop: DesktopAPI = {
   },
 
   openWebLink: (url) => ipcRenderer.invoke(channels.openWebLink, url),
+  copyText: (text) => ipcRenderer.invoke(channels.copyText, text),
   copyRelativePath: (path) => ipcRenderer.invoke(channels.copyRelativePath, path),
   getRepositoryRefs: (repository) => ipcRenderer.invoke(channels.getRepositoryRefs, repository),
   searchReviewContents: (snapshot, query, paths, options) =>

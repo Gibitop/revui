@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { Loader2, Zap } from 'lucide-react'
 import type { Snapshot } from '../../shared/review'
 import type { Settings } from '../../shared/desktop'
@@ -12,7 +12,11 @@ export function WorkspaceTools({
   active,
   setActive,
   settings,
+  ref,
+  onStatus,
 }: {
+  ref?: Ref<{ initialize: () => void }>
+  onStatus?: (status: { snapshot: string; ready: boolean; busy: boolean }) => void
   snapshot: Snapshot
   active: string | null
   setActive: (id: string | null) => void
@@ -22,6 +26,9 @@ export function WorkspaceTools({
   const [open, setOpen] = useState(false)
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    onStatus?.({ snapshot: snapshot.id, ready, busy })
+  }, [snapshot.id, ready, busy, onStatus])
   const [removing, setRemoving] = useState<string | null>(null)
   const [choice, setChoice] = useState<'worktree' | 'in-place'>('worktree')
   const [needsCheckout, setNeedsCheckout] = useState(false)
@@ -112,6 +119,11 @@ export function WorkspaceTools({
       setBusy(false)
     }
   }
+  useImperativeHandle(ref, () => ({
+    initialize: () => {
+      if (!busy && !removing) void initialize()
+    },
+  }))
   return (
     <>
       <Tooltip

@@ -28,6 +28,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Upload,
+  X,
 } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -51,7 +52,6 @@ type GitLabContextValue = {
   snapshot?: Snapshot
   review?: GitLabReview
   busy: boolean
-  error: string
   uploadLocal: (thread: LocalThread, message: string) => Promise<boolean>
   act: (
     request: GitLabRequest,
@@ -422,6 +422,20 @@ export function GitLabProvider({
     return () => clearTimeout(timeout)
   }, [copiedLink])
   const [error, setError] = useState('')
+  const [notification, setNotification] = useState('')
+  const notifiedErrors = useRef(new Set<string>())
+  useEffect(() => {
+    if (!error) return
+    const message = error.replace(/Error invoking remote method '[^']+': (?:Error: )?/g, '')
+    if (notifiedErrors.current.has(message)) return
+    notifiedErrors.current.add(message)
+    setNotification(message)
+  }, [error])
+  useEffect(() => {
+    if (!notification) return
+    const timeout = setTimeout(() => setNotification(''), 10000)
+    return () => clearTimeout(timeout)
+  }, [notification])
   const generation = useRef(Symbol())
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const lookup = async (show: boolean) => {
@@ -692,10 +706,32 @@ export function GitLabProvider({
           ? !thread.resolved
           : true,
   )
+  const errorNotification = notification && (
+    <div
+      data-testid="gitlab-error-notification"
+      className="pointer-events-auto fixed right-5 bottom-5 z-[100] flex max-w-sm items-start gap-3 rounded-lg border bg-background p-4 shadow-lg"
+    >
+      <CircleX aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-git-deleted" />
+      <div role="alert" className="min-w-0 flex-1">
+        <p className="font-semibold">GitLab</p>
+        <p className="mt-1 break-words text-sm text-muted-foreground">{notification}</p>
+      </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6 shrink-0"
+        aria-label="Dismiss GitLab notification"
+        onClick={() => setNotification('')}
+      >
+        <X className="size-4" />
+      </Button>
+    </div>
+  )
   return (
     <GitLabContext.Provider
-      value={{ review, snapshot, busy: busy || publishing, error, act, uploadLocal }}
+      value={{ review, snapshot, busy: busy || publishing, act, uploadLocal }}
     >
+      {!(boundSnapshot === snapshot?.id && open) && errorNotification}
       <GitLabButtonContext.Provider
         value={
           <>
@@ -704,7 +740,7 @@ export function GitLabProvider({
               size="icon"
               aria-label="Merge request"
               aria-busy={looking}
-              title={error || (missing ? 'No matching merge request' : 'Merge request')}
+              title={missing ? 'No matching merge request' : 'Merge request'}
               disabled={!snapshot || looking}
               className={missing ? 'text-git-deleted hover:text-git-deleted' : ''}
               onClick={() => {
@@ -715,7 +751,7 @@ export function GitLabProvider({
               {looking ? <LoaderCircle className="animate-spin" /> : <GitPullRequest />}
             </Button>
             <span role="status" className="sr-only">
-              {looking ? 'Searching merge requests' : missing ? 'No matching merge request' : error}
+              {looking ? 'Searching merge requests' : missing ? 'No matching merge request' : ''}
             </span>
             <Dialog open={boundSnapshot === snapshot?.id && open} onOpenChange={setOpen}>
               <DialogContent
@@ -723,6 +759,7 @@ export function GitLabProvider({
                 aria-describedby={undefined}
                 className="inset-y-0 right-0 left-auto flex h-dvh w-[50vw] max-w-none translate-x-0 translate-y-0 flex-col rounded-none border-y-0 border-r-0 p-0 shadow-2xl"
               >
+                {errorNotification}
                 <header className="shrink-0 space-y-4 border-b bg-surface px-6 py-5">
                   <div className="flex flex-wrap items-center gap-2 pr-10 text-muted-foreground">
                     <span
@@ -843,14 +880,6 @@ export function GitLabProvider({
                   )}
                 </header>
                 <div className="min-h-0 flex-1 space-y-6 overflow-auto p-6">
-                  {error && (
-                    <p
-                      role="alert"
-                      className="rounded-md border border-git-deleted/30 bg-git-deleted/5 p-3 text-git-deleted wrap-anywhere"
-                    >
-                      {error.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')}
-                    </p>
-                  )}
                   {!review && (
                     <div className="space-y-3">
                       <p className="text-muted-foreground">
@@ -1288,7 +1317,6 @@ export function GitLabComposer({
   }
   return (
     <div className="space-y-2" data-review-editor>
-      {context.error && <p role="alert">{context.error}</p>}
       <CommentComposer
         body={body}
         onChange={setBody}
@@ -1383,7 +1411,6 @@ export function GitLabDiscussion({
       }
       pending={busy || discussion.notes.some((note) => note.id < 0)}
       resolved={!!first?.resolved}
-      error={context.error}
       onEdit={(id, body) =>
         act({
           kind: 'edit',

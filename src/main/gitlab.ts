@@ -143,6 +143,12 @@ class GitLabHTTPError extends Error {
 export class GitLabService {
   private credentials: Credentials | null = null
   private sessions = new Map<string, Session>()
+  aiContext(snapshot: string): string {
+    const session = [...this.sessions.values()].find((session) => session.snapshot.id === snapshot)
+    if (!session) return 'No merge request is associated with this comparison.'
+    const { mr, discussions, approvals } = session.review
+    return JSON.stringify({ mr, discussions, approvals })
+  }
   private matches = new Map<string, { project: number; mrs: MR[] }>()
   private avatars = new Map<string, Promise<string | null>>()
   private queue: Promise<unknown> = Promise.resolve()
