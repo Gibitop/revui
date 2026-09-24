@@ -191,7 +191,7 @@ export function ReviewSidebar({
           aria-valuemax={600}
           aria-valuenow={sidebarWidth}
           tabIndex={0}
-          className="z-10 -mx-0.75 w-1.75 shrink-0 touch-none cursor-col-resize bg-[linear-gradient(to_right,transparent_3px,var(--border)_3px,var(--border)_4px,transparent_4px)] hover:bg-accent hover:outline hover:outline-ring focus-visible:bg-accent focus-visible:outline focus-visible:outline-ring"
+          className="z-20 -mx-0.75 w-1.75 shrink-0 touch-none cursor-col-resize bg-[linear-gradient(to_right,transparent_3px,var(--border)_3px,var(--border)_4px,transparent_4px)] hover:bg-[linear-gradient(to_right,transparent_2.5px,var(--ring)_2.5px,var(--ring)_4.5px,transparent_4.5px)] focus-visible:bg-[linear-gradient(to_right,transparent_2.5px,var(--ring)_2.5px,var(--ring)_4.5px,transparent_4.5px)] focus-visible:outline-none"
           onPointerDown={(event) => {
             event.currentTarget.setPointerCapture(event.pointerId)
             event.preventDefault()
