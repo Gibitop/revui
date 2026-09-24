@@ -155,7 +155,11 @@ export class ReviewService {
           env: { ...process.env, GIT_LITERAL_PATHSPECS: '1', GIT_TERMINAL_PROMPT: '0' },
         },
         (error, stdout) => {
-          if (error && !(error.code === 1 && args.includes('--no-index'))) reject(error)
+          if (
+            error &&
+            !(error.code === 1 && (args.includes('--no-index') || args[0] === 'merge-tree'))
+          )
+            reject(error)
           else resolve(stdout)
         },
       )
@@ -224,11 +228,29 @@ export class ReviewService {
           .trim()
       }
     }
+    const mergeConflicts = new Set<string>()
     if (
       comparison.mode === 'merge-base' &&
       comparison.base.kind === 'commit' &&
       comparison.target.kind === 'commit'
     ) {
+      const result = await this.git(
+        repository,
+        [
+          'merge-tree',
+          '--write-tree',
+          '--name-only',
+          '--no-messages',
+          '-z',
+          comparison.base.ref,
+          comparison.target.ref,
+        ],
+        signal,
+      )
+      // The first field is the simulated merge tree; the remaining fields are conflict paths.
+      for (const path of result.toString().split('\0').slice(1)) {
+        if (path) mergeConflicts.add(path)
+      }
       comparison.base.ref = (
         await this.git(
           repository,
@@ -428,6 +450,10 @@ export class ReviewService {
         file.deletions = binary ? null : 0
       }
       tree.set(path, { mode, oid: '' })
+    }
+    for (const file of files.values()) {
+      if (mergeConflicts.has(file.path) || mergeConflicts.has(file.oldPath))
+        file.mergeConflict = true
     }
     const stamps = new Map<string, string>()
     if (target.kind === 'working') {

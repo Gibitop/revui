@@ -13,7 +13,7 @@ import {
   type SelectedLineRange,
   type DiffLineAnnotation,
 } from '@pierre/diffs'
-import { ArrowRight, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react'
+import { ArrowRight, ChevronDown, ChevronRight, Copy, Check, CircleAlert } from 'lucide-react'
 import type {
   ContentMatch,
   LocalThread,
@@ -413,7 +413,13 @@ export function ReviewFileCard({
       <header
         data-testid="file-heading"
         className="group sticky top-0 z-10 flex items-center gap-2.5 border-b bg-surface px-3 py-2"
-        data-git-status={metadata ? gitStatuses[metadata.status] : undefined}
+        data-git-status={
+          metadata?.mergeConflict
+            ? 'conflicted'
+            : metadata
+              ? gitStatuses[metadata.status]
+              : undefined
+        }
       >
         <Button
           variant="ghost"
@@ -424,7 +430,7 @@ export function ReviewFileCard({
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
         </Button>
-        <span className="shrink-0 text-muted-foreground group-data-[git-status=added]:text-git-added group-data-[git-status=untracked]:text-git-added group-data-[git-status=deleted]:text-git-deleted group-data-[git-status=modified]:text-git-modified group-data-[git-status=renamed]:text-git-renamed">
+        <span className="shrink-0 text-muted-foreground group-data-[git-status=added]:text-git-added group-data-[git-status=untracked]:text-git-added group-data-[git-status=deleted]:text-git-deleted group-data-[git-status=modified]:text-git-modified group-data-[git-status=renamed]:text-git-renamed group-data-[git-status=conflicted]:text-git-conflicted">
           {metadata
             ? ({
                 A: 'Added',
@@ -438,7 +444,7 @@ export function ReviewFileCard({
               }[metadata.status] ?? 'Changed')
             : 'Unchanged'}
         </span>
-        <h2 className="wrap-anywhere font-mono group-data-[git-status=added]:text-git-added group-data-[git-status=untracked]:text-git-added group-data-[git-status=deleted]:text-git-deleted group-data-[git-status=modified]:text-git-modified group-data-[git-status=renamed]:text-git-renamed">
+        <h2 className="wrap-anywhere font-mono group-data-[git-status=added]:text-git-added group-data-[git-status=untracked]:text-git-added group-data-[git-status=deleted]:text-git-deleted group-data-[git-status=modified]:text-git-modified group-data-[git-status=renamed]:text-git-renamed group-data-[git-status=conflicted]:text-git-conflicted">
           {metadata && metadata.oldPath !== path ? (
             <>
               {metadata.oldPath}{' '}
@@ -505,6 +511,15 @@ export function ReviewFileCard({
           Reviewed
         </Label>
       </header>
+      {metadata?.mergeConflict && (
+        <p
+          className="flex items-center gap-2 border-b border-git-conflicted/40 bg-git-conflicted/10 px-4 py-3 text-git-conflicted"
+          role="note"
+        >
+          <CircleAlert className="size-4 shrink-0" aria-hidden="true" />
+          <strong>Merge conflict:</strong> This file would conflict when merging New into Old.
+        </p>
+      )}
       {copyError && (
         <p role="alert" className="flex flex-wrap items-center gap-3 p-4">
           {copyError}

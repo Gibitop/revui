@@ -339,11 +339,20 @@ const ReviewTree = memo(function ReviewTree({
       worker?.terminate()
     }
   }, [paths, attempt])
+  const conflicts = useRef(new Set<string>())
   const { model } = useFileTree({
     preparedInput: prepared,
     density: 'default',
     stickyFolders: true,
     initialExpansion: 'open',
+    renderRowDecoration: ({ item }) =>
+      item.kind === 'file' && conflicts.current.has(item.path)
+        ? {
+            text: 'Conflicted',
+            title: 'Would conflict when merging New into Old',
+            parts: [{ text: 'Conflicted', color: 'var(--git-conflicted)' }],
+          }
+        : null,
     onSelectionChange: (selected) => {
       if (syncingSelection.current) return
       const path = selected[0]
@@ -354,9 +363,12 @@ const ReviewTree = memo(function ReviewTree({
       ':host { font-family: "Geist Mono Variable", monospace; font-size: 13px; line-height: 20px; }',
   })
   useEffect(() => {
+    conflicts.current = new Set(files.filter((file) => file.mergeConflict).map((file) => file.path))
     model.resetPaths({ preparedInput: prepared })
     model.setGitStatus(
-      files.map((file) => ({ path: file.path, status: gitStatuses[file.status] ?? 'modified' })),
+      files
+        .filter((file) => !file.mergeConflict)
+        .map((file) => ({ path: file.path, status: gitStatuses[file.status] ?? 'modified' })),
     )
   }, [model, prepared, files])
   useEffect(() => {
@@ -372,7 +384,7 @@ const ReviewTree = memo(function ReviewTree({
     model.scrollToPath(selected, { focus: false })
   }, [model, selected, prepared])
   if (view === 'flat') {
-    const statuses = new Map(files.map((file) => [file.path, file.status]))
+    const statuses = new Map(files.map((file) => [file.path, file]))
     return (
       <div
         className="flat-file-list min-h-0 flex-1 overflow-auto px-2 pb-2"
@@ -385,8 +397,13 @@ const ReviewTree = memo(function ReviewTree({
         />
         <ul ref={listRef} aria-label="File list">
           {paths.map((path) => {
-            const status = statuses.get(path)
-            const gitStatus = status ? (gitStatuses[status] ?? 'modified') : undefined
+            const file = statuses.get(path)
+            const status = file?.status
+            const gitStatus = file?.mergeConflict
+              ? 'conflicted'
+              : status
+                ? (gitStatuses[status] ?? 'modified')
+                : undefined
             const icon = resolveIcon('file-tree-icon-file', path)
             return (
               <li key={path}>
@@ -411,7 +428,11 @@ const ReviewTree = memo(function ReviewTree({
                     <use href={`#${icon.name}`} />
                   </svg>
                   <span className="min-w-0 flex-1 truncate">{path}</span>
-                  {status && <span aria-label={gitStatus}>{status}</span>}
+                  {status && (
+                    <span aria-label={gitStatus}>
+                      {file?.mergeConflict ? 'Conflicted' : status}
+                    </span>
+                  )}
                 </button>
               </li>
             )

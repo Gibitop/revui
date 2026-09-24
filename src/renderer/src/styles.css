@@ -58,6 +58,7 @@
   --color-git-deleted: var(--git-deleted);
   --color-git-modified: var(--git-modified);
   --color-git-renamed: var(--git-renamed);
+  --color-git-conflicted: var(--git-conflicted);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -153,6 +154,7 @@ textarea {
   --git-deleted: light-dark(#cf2637, #ff6762);
   --git-modified: light-dark(#967400, #ffd452);
   --git-renamed: light-dark(#087f9f, #08c0ef);
+  --git-conflicted: light-dark(#b34c00, #ff9c52);
 }
 .file-tree {
   --trees-status-added-override: var(--git-added);
@@ -293,4 +295,8 @@ textarea {
 }
 .flat-file-list [data-git-status='renamed'] {
   color: var(--git-renamed);
+}
+
+.flat-file-list [data-git-status='conflicted'] {
+  color: var(--git-conflicted);
 }

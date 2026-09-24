@@ -1,6 +1,7 @@
 export type Endpoint = { kind: 'commit'; ref: string } | { kind: 'index' } | { kind: 'working' }
 export type Comparison = { base: Endpoint; target: Endpoint; mode: 'direct' | 'merge-base' }
 export type ReviewFile = {
+  mergeConflict?: boolean
   path: string
   additions: number | null
   deletions: number | null

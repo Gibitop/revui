@@ -283,6 +283,53 @@ it('handles an unborn repository and cancellation without changing source files'
   expect(await readFile(join(repository, 'first.txt'), 'utf8')).toBe('new\n')
 })
 
+it('predicts merge conflicts only in merge-base mode without changing the checkout', async () => {
+  const { repository, git, write, service } = await fixture()
+  const oddPath = process.platform === 'win32' ? 'conflict Ω.txt' : 'conflict Ω\tfile.txt'
+  await write(oddPath, 'original\n')
+  await write('clean.txt', 'one\ntwo\nthree\nfour\nfive\n')
+  await write('deleted.txt', 'original\n')
+  await git('add', '.')
+  await git('commit', '-m', 'fixtures')
+  await git('checkout', '-b', 'source')
+  await write(oddPath, 'source\n')
+  await write('file.txt', 'source\n')
+  await write('clean.txt', 'source\ntwo\nthree\nfour\nfive\n')
+  await write('deleted.txt', 'source\n')
+  await git('commit', '-am', 'source')
+  await git('checkout', 'main')
+  await write(oddPath, 'target\n')
+  await write('file.txt', 'target\n')
+  await write('clean.txt', 'one\ntwo\nthree\nfour\ntarget\n')
+  await git('rm', 'deleted.txt')
+  await git('commit', '-am', 'target')
+  await write('file.txt', 'local uncommitted changes\n')
+  const before = (await git('status', '--porcelain=v1')).stdout
+  const head = (await git('rev-parse', 'HEAD')).stdout
+  const comparison: Comparison = {
+    base: { kind: 'commit', ref: 'main' },
+    target: { kind: 'commit', ref: 'source' },
+    mode: 'merge-base',
+  }
+  const snapshot = await service.open(repository, comparison)
+  expect(
+    snapshot.files
+      .filter((file) => file.mergeConflict)
+      .map((file) => file.path)
+      .sort(),
+  ).toEqual([oddPath, 'file.txt', 'deleted.txt'].sort())
+  expect(snapshot.files.find((file) => file.path === 'file.txt')?.status).toBe('M')
+  expect(snapshot.files.find((file) => file.path === 'clean.txt')?.mergeConflict).toBeUndefined()
+  expect((await service.content(snapshot.id, 'file.txt')).newFile?.contents).toBe('source\n')
+  expect((await git('status', '--porcelain=v1')).stdout).toBe(before)
+  expect((await git('rev-parse', 'HEAD')).stdout).toBe(head)
+  expect(await readFile(join(repository, 'file.txt'), 'utf8')).toBe('local uncommitted changes\n')
+  const direct = await service.open(repository, { ...comparison, mode: 'direct' })
+  expect(direct.files.every((file) => !file.mergeConflict)).toBe(true)
+  const clean = await service.open(repository, { ...comparison, target: comparison.base })
+  expect(clean.files).toEqual([])
+})
+
 it('surfaces conflicts, including index-only views', async () => {
   const { repository, git, write, service } = await fixture()
   await git('checkout', '-b', 'other')
