@@ -1,7 +1,12 @@
 import { Input } from '@/components/ui/input'
 import { Menu } from '@base-ui/react/menu'
 import { memo, useEffect, useRef, useState, type RefObject } from 'react'
-import { preparePresortedFileTreeInput, type GitStatus } from '@pierre/trees'
+import {
+  createFileTreeIconResolver,
+  getBuiltInSpriteSheet,
+  preparePresortedFileTreeInput,
+  type GitStatus,
+} from '@pierre/trees'
 import { FileTree, useFileTree } from '@pierre/trees/react'
 import {
   ArrowLeft,
@@ -9,6 +14,8 @@ import {
   Check,
   Filter,
   Files,
+  List,
+  ListTree,
   FileDiff as FileDiffIcon,
   MessagesSquare,
 } from 'lucide-react'
@@ -16,6 +23,9 @@ import type { Snapshot } from '../../shared/review'
 import type { Settings, PreferencesPatch } from '../../shared/desktop'
 import { Button } from '@/components/ui/button'
 import ReviewWorker from './review.worker?worker'
+const { resolveIcon } = createFileTreeIconResolver()
+const fileIconSprite = getBuiltInSpriteSheet('complete')
+
 export const gitStatuses: Record<string, GitStatus> = {
   A: 'added',
   D: 'deleted',
@@ -66,6 +76,7 @@ export function ReviewSidebar({
 }) {
   // Keep drag updates local so resizing does not rerender every diff card.
   const [sidebarWidth, setSidebarWidth] = useState(settings.sidebarWidth)
+  const [view, setView] = useState('tree')
   return (
     <>
       <aside
@@ -86,6 +97,45 @@ export function ReviewSidebar({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
+            <Menu.Root>
+              <Menu.Trigger
+                render={<Button variant="ghost" size="icon" />}
+                aria-label="File view"
+                className="shrink-0"
+              >
+                {view === 'tree' ? <ListTree aria-hidden="true" /> : <List aria-hidden="true" />}
+              </Menu.Trigger>
+              <Menu.Portal>
+                <Menu.Positioner align="end" sideOffset={5} className="z-40">
+                  <Menu.Popup
+                    aria-label="File view"
+                    className="min-w-48 rounded-md border bg-background p-1 text-foreground shadow-lg outline-none"
+                  >
+                    <Menu.RadioGroup value={view} onValueChange={setView}>
+                      {[
+                        { value: 'tree', label: 'Tree view', Icon: ListTree },
+                        { value: 'flat', label: 'Flat list', Icon: List },
+                      ].map(({ value, label, Icon }) => (
+                        <Menu.RadioItem
+                          key={value}
+                          value={value}
+                          closeOnClick
+                          className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 outline-none data-highlighted:bg-accent"
+                        >
+                          <Icon size={16} aria-hidden="true" />
+                          {label}
+                          <span className="ml-auto size-4">
+                            <Menu.RadioItemIndicator>
+                              <Check size={16} aria-hidden="true" />
+                            </Menu.RadioItemIndicator>
+                          </span>
+                        </Menu.RadioItem>
+                      ))}
+                    </Menu.RadioGroup>
+                  </Menu.Popup>
+                </Menu.Positioner>
+              </Menu.Portal>
+            </Menu.Root>
             <Menu.Root>
               <Menu.Trigger
                 render={<Button variant="ghost" size="icon" />}
@@ -174,6 +224,7 @@ export function ReviewSidebar({
         </div>
         {!!snapshot && (
           <ReviewTree
+            view={view}
             files={snapshot.files}
             paths={paths}
             selected={selected}
@@ -233,18 +284,24 @@ export function ReviewSidebar({
 }
 
 const ReviewTree = memo(function ReviewTree({
+  view,
   files,
   paths,
   selected,
   onSelect,
   theme,
 }: {
+  view: string
   files: Snapshot['files']
   paths: string[]
   selected: string
   onSelect: (path: string) => void
   theme: 'light' | 'dark'
 }) {
+  const listRef = useRef<HTMLUListElement>(null)
+  useEffect(() => {
+    listRef.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [view, selected, paths])
   const selection = useRef({ selected, onSelect })
   const syncingSelection = useRef(false)
   selection.current = { selected, onSelect }
@@ -314,6 +371,55 @@ const ReviewTree = memo(function ReviewTree({
     }
     model.scrollToPath(selected, { focus: false })
   }, [model, selected, prepared])
+  if (view === 'flat') {
+    const statuses = new Map(files.map((file) => [file.path, file.status]))
+    return (
+      <div
+        className="flat-file-list min-h-0 flex-1 overflow-auto px-2 pb-2"
+        style={{ colorScheme: theme }}
+      >
+        <div
+          aria-hidden="true"
+          className="hidden"
+          dangerouslySetInnerHTML={{ __html: fileIconSprite }}
+        />
+        <ul ref={listRef} aria-label="File list">
+          {paths.map((path) => {
+            const status = statuses.get(path)
+            const gitStatus = status ? (gitStatuses[status] ?? 'modified') : undefined
+            const icon = resolveIcon('file-tree-icon-file', path)
+            return (
+              <li key={path}>
+                <button
+                  type="button"
+                  aria-current={path === selected ? 'true' : undefined}
+                  title={path}
+                  data-git-status={gitStatus}
+                  onClick={() => onSelect(path)}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left font-mono text-[13px] hover:bg-accent focus-visible:outline-ring aria-current:bg-accent"
+                >
+                  <svg
+                    width={16}
+                    height={16}
+                    viewBox="0 0 16 16"
+                    className="shrink-0"
+                    aria-hidden="true"
+                    style={{
+                      color: `var(--trees-file-icon-color-${icon.token ?? 'default'}, var(--trees-file-icon-color-default))`,
+                    }}
+                  >
+                    <use href={`#${icon.name}`} />
+                  </svg>
+                  <span className="min-w-0 flex-1 truncate">{path}</span>
+                  {status && <span aria-label={gitStatus}>{status}</span>}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+    )
+  }
   if (error)
     return (
       <div role="alert" className="p-3">

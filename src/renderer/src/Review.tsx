@@ -310,6 +310,17 @@ function ReviewSession({
     )
       return
     if (
+      event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      event.key.toLowerCase() === 'f'
+    ) {
+      event.preventDefault()
+      if (!event.repeat) preferences({ sidebarCollapsed: !settings.sidebarCollapsed })
+      return
+    }
+    if (
       !event.altKey &&
       !event.shiftKey &&
       (event.key === 'ArrowLeft' || event.key === 'ArrowRight')

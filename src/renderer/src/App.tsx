@@ -124,7 +124,7 @@ export function App() {
               size="icon"
               className="shrink-0"
               aria-label={settings.sidebarCollapsed ? 'Show file sidebar' : 'Hide file sidebar'}
-              title={settings.sidebarCollapsed ? 'Show file sidebar' : 'Hide file sidebar'}
+              title={`${settings.sidebarCollapsed ? 'Show file sidebar' : 'Hide file sidebar'} (Shift+F)`}
               aria-expanded={!settings.sidebarCollapsed}
               aria-controls="review-files-sidebar"
               onClick={() => preferences.mutate({ sidebarCollapsed: !settings.sidebarCollapsed })}
