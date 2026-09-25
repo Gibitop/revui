@@ -30,6 +30,12 @@ test('large search results stay responsive and retain syntax and match highlight
       (_, index) => `export const needle${index} = { value: "needle", enabled: true };`,
     ).join('\n'),
   )
+  for (let index = 0; index < 12; index++) {
+    await writeFile(
+      join(repository, `before-${index}.ts`),
+      Array.from({ length: 100 }, (_, line) => `export const value${line} = ${line};`).join('\n'),
+    )
+  }
   const env: Record<string, string> = {
     ...Object.fromEntries(
       Object.entries(process.env).filter(
@@ -91,9 +97,21 @@ test('large search results stay responsive and retain syntax and match highlight
     await expect(results.locator('span[style*="color"]').first()).toBeVisible()
     await resultRows.click()
     await expect(page.getByRole('dialog')).toBeHidden()
+    await expect(page.getByRole('article')).toHaveCount(13)
+    const matchLine = page
+      .getByRole('article', { name: 'large.ts', exact: true })
+      .locator('[data-line="600"]')
+      .last()
+    await expect(matchLine).toBeInViewport()
+    await page.locator('[data-testid="diff-scroll"] > div').evaluate((pane) => {
+      pane.scrollTop = 0
+    })
     await page.getByRole('button', { name: 'Search contents', exact: true }).click()
     await expect(resultRows).toHaveCount(1)
     await expect(results.locator('span[style*="color"]').first()).toBeVisible()
+    await resultRows.click()
+    await expect(page.getByRole('article')).toHaveCount(13)
+    await expect(matchLine).toBeInViewport()
   } finally {
     await application.close()
     await rm(root, { recursive: true, force: true })

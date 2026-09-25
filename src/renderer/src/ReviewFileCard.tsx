@@ -81,6 +81,13 @@ export function ReviewFileCard({
     if (searchHit || threadFocus) setCollapsed(false)
   }, [searchHit, threadFocus, threadVisit])
   const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    if (!searchHit) return
+    const file = root.current
+    const scroll = file?.closest('[data-testid="diff-scroll"]')?.firstElementChild
+    if (file && scroll)
+      scroll.scrollTop += file.getBoundingClientRect().top - scroll.getBoundingClientRect().top
+  }, [searchHit])
   const [force, setForce] = useState(false)
   const [range, setRange] = useState<SelectedLineRange | null>(null)
   const [selectingRange, setSelectingRange] = useState<SelectedLineRange | null>(null)
@@ -105,7 +112,7 @@ export function ReviewFileCard({
   const content = useQuery({
     queryKey: ['review-file', snapshot.id, path, force],
     queryFn: () => window.desktop.loadReviewFile(snapshot.id, path, force),
-    enabled: visible,
+    enabled: visible || !!searchHit,
     retry: false,
     staleTime: Infinity,
   })

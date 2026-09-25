@@ -436,12 +436,13 @@ function ReviewSession({
   const visiblePaths =
     settings.reviewLayout === 'focused' ||
     threadFocused ||
-    searchHit ||
-    (!filesByPath.has(selected) && !threadFocus)
+    (!filesByPath.has(selected) && !threadFocus && !searchHit)
       ? selected
         ? [selected]
         : []
-      : paths.filter((path) => filesByPath.has(path) || path === selected)
+      : paths.filter(
+          (path) => filesByPath.has(path) || path === selected || path === searchHit?.path,
+        )
 
   useEffect(() => {
     if (!scrollTarget || threadFocus || searchHit) return
@@ -601,6 +602,7 @@ function ReviewSession({
                 open={searchOpen}
                 onOpenChange={setSearchOpen}
                 onSelect={(match) => {
+                  setScrollTarget(null)
                   setSelected(match.path)
                   setThreadFocus(null)
                   setSearchHit({ ...match, key: Date.now() })
