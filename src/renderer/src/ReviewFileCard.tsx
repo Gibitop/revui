@@ -4,7 +4,7 @@ import { IDEButton } from './IDEButton'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { CommentComposer } from './CommentComposer'
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { File, FileDiff, useVirtualizer, type FileDiffMetadata } from '@pierre/diffs/react'
 import {
@@ -29,7 +29,7 @@ import { gitStatuses } from './ReviewSidebar'
 const codeCSS =
   ':host { --diffs-font-family: "Geist Mono Variable", monospace; --diffs-font-size: 13px; --diffs-line-height: 20px; }'
 
-export function ReviewFileCard({
+export const ReviewFileCard = memo(function ReviewFileCard({
   snapshot,
   path,
   record,
@@ -50,7 +50,7 @@ export function ReviewFileCard({
   record?: ReviewRecord
   metadata?: Snapshot['files'][number]
   threads: LocalThread[]
-  settings: Settings
+  settings: Pick<Settings, 'diffLayout' | 'wrapLines' | 'preferredIDE'>
   theme: 'light' | 'dark'
   threadFocus: string | null
   threadVisit: number
@@ -59,16 +59,18 @@ export function ReviewFileCard({
   const gitlab = useGitLab()
   const virtualizer = useVirtualizer()
   const root = useRef<HTMLElement>(null)
+  const [visible, setVisible] = useState(false)
+  const loadContent = visible || !!searchHit
   const [narrow, setNarrow] = useState(false)
   useEffect(() => {
-    if (settings.diffLayout !== 'auto' || !root.current) return
+    if (!loadContent || settings.diffLayout !== 'auto' || !root.current) return
     // Leave at least 400px per column in split view, accounting for side panels.
     const observer = new ResizeObserver(([entry]) => {
       setNarrow(entry.contentRect.width < 800)
     })
     observer.observe(root.current)
     return () => observer.disconnect()
-  }, [settings.diffLayout])
+  }, [settings.diffLayout, loadContent])
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
   useEffect(() => {
@@ -80,7 +82,6 @@ export function ReviewFileCard({
   useEffect(() => {
     if (searchHit || threadFocus) setCollapsed(false)
   }, [searchHit, threadFocus, threadVisit])
-  const [visible, setVisible] = useState(false)
   useEffect(() => {
     if (!searchHit) return
     const file = root.current
@@ -112,7 +113,7 @@ export function ReviewFileCard({
   const content = useQuery({
     queryKey: ['review-file', snapshot.id, path, force],
     queryFn: () => window.desktop.loadReviewFile(snapshot.id, path, force),
-    enabled: visible || !!searchHit,
+    enabled: loadContent,
     retry: false,
     staleTime: Infinity,
   })
@@ -658,4 +659,4 @@ export function ReviewFileCard({
       )}
     </article>
   )
-}
+})

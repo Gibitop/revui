@@ -1,7 +1,7 @@
 import { useAIReview } from './AIReview'
 import { Input } from '@/components/ui/input'
 import { Menu } from '@base-ui/react/menu'
-import { memo, useEffect, useEffectEvent, useRef, useState, type RefObject } from 'react'
+import { memo, useEffect, useEffectEvent, useMemo, useRef, useState, type RefObject } from 'react'
 import {
   createFileTreeIconResolver,
   getBuiltInSpriteSheet,
@@ -386,7 +386,20 @@ function ReviewOrder({
   const loading =
     !error &&
     (!state || state.order.running || (!state.record.walkthroughKey && !state.order.error))
-  const statuses = new Map(snapshot.files.map((file) => [file.path, file]))
+  const statuses = useMemo(
+    () => new Map(snapshot.files.map((file) => [file.path, file])),
+    [snapshot.files],
+  )
+  const sections = useMemo(() => {
+    const included = new Set(paths)
+    return (
+      state?.record.walkthrough.map((section, index) => ({
+        ...section,
+        index,
+        visible: section.paths.filter((path) => included.has(path)),
+      })) ?? []
+    )
+  }, [state?.record.walkthrough, paths])
   return (
     <div
       ref={listRef}
@@ -439,8 +452,7 @@ function ReviewOrder({
       )}
       {!loading &&
         !error &&
-        state?.record.walkthrough.map((section, index) => {
-          const visible = section.paths.filter((path) => paths.includes(path))
+        sections.map(({ index, visible, ...section }) => {
           if (!visible.length) return null
           return (
             <section
@@ -460,7 +472,7 @@ function ReviewOrder({
                   view="tree"
                   files={snapshot.files}
                   paths={visible}
-                  selected={selected}
+                  selected={visible.includes(selected) ? selected : ''}
                   onSelect={select}
                   theme={theme}
                   section
@@ -542,8 +554,8 @@ const ReviewTree = memo(function ReviewTree({
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
   const [prepared, setPrepared] = useState(() => preparePresortedFileTreeInput([]))
-  // Section arrays are recreated when selection changes; preserve each tree's expansion.
-  const pathsKey = JSON.stringify(paths)
+  // Only rebuild the model when the path contents change.
+  const pathsKey = useMemo(() => JSON.stringify(paths), [paths])
   useEffect(() => {
     let current = true
     setError('')
@@ -629,11 +641,10 @@ const ReviewTree = memo(function ReviewTree({
     if (!section) return
     const frame = requestAnimationFrame(() => {
       const host = model.getFileTreeContainer()
-      const row = host?.shadowRoot?.querySelector<HTMLElement>('[aria-selected="true"]')
-      if (!row) return
+      if (!host || !model.getItem(selected)) return
       const header = host?.closest('section')?.querySelector('[data-testid="review-step-header"]')
-      row.style.scrollMarginTop = `${header?.getBoundingClientRect().height ?? 0}px`
-      row.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      host.style.scrollMarginTop = `${header?.getBoundingClientRect().height ?? 0}px`
+      host.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     })
     return () => cancelAnimationFrame(frame)
   }, [model, selected, prepared, section])
@@ -719,7 +730,11 @@ const ReviewTree = memo(function ReviewTree({
         if (row?.dataset.itemPath === selected) onSelect(selected)
       }}
       className={`file-tree block min-h-0 flex-1 ${section ? '[--trees-padding-inline-override:0px]' : ''}`}
-      style={{ colorScheme: theme, ...(section ? { height: treeHeight, flex: 'none' } : {}) }}
+      // A full-content viewport renders every row and defeats the tree's virtualizer.
+      style={{
+        colorScheme: theme,
+        ...(section ? { height: treeHeight, maxHeight: '60vh', flex: 'none' } : {}),
+      }}
     />
   )
 })

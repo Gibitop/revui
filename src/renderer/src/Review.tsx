@@ -16,6 +16,8 @@ import { ReviewFileCard } from './ReviewFileCard'
 import { ContentSearch } from './ContentSearch'
 import ReviewWorker from './review.worker?worker'
 
+const emptyThreads: LocalThread[] = []
+
 const defaultComparison: Comparison = {
   base: { kind: 'commit', ref: 'HEAD' },
   target: { kind: 'working' },
@@ -224,6 +226,15 @@ function ReviewSession({
     )
       setThreadFocus(null)
   }, [records.data, threadFocus, gitlabReview, aiState])
+  // Sidebar preferences should not invalidate every mounted diff card.
+  const fileSettings = useMemo(
+    () => ({
+      diffLayout: settings.diffLayout,
+      wrapLines: settings.wrapLines,
+      preferredIDE: settings.preferredIDE,
+    }),
+    [settings.diffLayout, settings.wrapLines, settings.preferredIDE],
+  )
   const filesByPath = useMemo(
     () => new Map(snapshot.data?.files.map((file) => [file.path, file])),
     [snapshot.data],
@@ -268,8 +279,9 @@ function ReviewSession({
         : []
     })
   }, [gitlabReview, snapshot.data])
-  const unresolved = [...(records.data?.threads ?? []), ...remoteThreads].filter(
-    (thread) => !thread.resolved,
+  const unresolved = useMemo(
+    () => [...(records.data?.threads ?? []), ...remoteThreads].filter((thread) => !thread.resolved),
+    [records.data?.threads, remoteThreads],
   )
   const filterThreads = filter === 'unresolved' ? records.data?.threads : undefined
   const paths = useMemo(() => {
@@ -322,31 +334,38 @@ function ReviewSession({
       { additions: 0, deletions: 0 },
     )
   }, [paths, snapshot.data])
-  const threadPaths = fileOrder === 'ai' ? paths : [...(snapshot.data?.paths ?? []), ...paths]
-  const threadOrder = new Map([...new Set(threadPaths)].map((path, index) => [path, index]))
-  const navigableThreads = unresolved
-    .filter((thread) => filter !== 'unresolved' || paths.includes(thread.path))
-    .sort(
-      (a, b) =>
-        (threadOrder.get(a.path) ?? threadPaths.length) -
-          (threadOrder.get(b.path) ?? threadPaths.length) ||
-        a.path.localeCompare(b.path, undefined, { numeric: true }) ||
-        a.start - b.start ||
-        a.id.localeCompare(b.id),
-    )
-  const select = (path: string) => {
-    if (!paths.includes(path)) {
-      setFilter('changed')
-      setSearch('')
-    }
-    setSelected(path)
-    setSearchHit(null)
-    const thread =
-      filter === 'unresolved' ? navigableThreads.find((thread) => thread.path === path) : undefined
-    setThreadFocus(thread?.id ?? null)
-    if (thread) setThreadVisit((value) => value + 1)
-    setScrollTarget(thread ? null : { path })
-  }
+  const navigableThreads = useMemo(() => {
+    const threadPaths = fileOrder === 'ai' ? paths : [...(snapshot.data?.paths ?? []), ...paths]
+    const threadOrder = new Map([...new Set(threadPaths)].map((path, index) => [path, index]))
+    return unresolved
+      .filter((thread) => filter !== 'unresolved' || paths.includes(thread.path))
+      .sort(
+        (a, b) =>
+          (threadOrder.get(a.path) ?? threadPaths.length) -
+            (threadOrder.get(b.path) ?? threadPaths.length) ||
+          a.path.localeCompare(b.path, undefined, { numeric: true }) ||
+          a.start - b.start ||
+          a.id.localeCompare(b.id),
+      )
+  }, [fileOrder, paths, snapshot.data?.paths, unresolved, filter])
+  const select = useCallback(
+    (path: string) => {
+      if (!paths.includes(path)) {
+        setFilter('changed')
+        setSearch('')
+      }
+      setSelected(path)
+      setSearchHit(null)
+      const thread =
+        filter === 'unresolved'
+          ? navigableThreads.find((thread) => thread.path === path)
+          : undefined
+      setThreadFocus(thread?.id ?? null)
+      if (thread) setThreadVisit((value) => value + 1)
+      setScrollTarget(thread ? null : { path })
+    },
+    [paths, filter, navigableThreads],
+  )
   const navigationPaths = fileOrder === 'ai' ? paths : changed
   const navigate = (direction: number, threads = false) => {
     if (threads || filter === 'unresolved') {
@@ -716,11 +735,11 @@ function ReviewSession({
                         path={path}
                         record={records.data}
                         metadata={filesByPath.get(path)}
-                        threads={threadsByPath.get(path) ?? []}
-                        settings={settings}
+                        threads={threadsByPath.get(path) ?? emptyThreads}
+                        settings={fileSettings}
                         theme={theme}
                         threadFocus={path === selected ? threadFocus : null}
-                        threadVisit={threadVisit}
+                        threadVisit={path === selected && threadFocus ? threadVisit : 0}
                         searchHit={searchHit?.path === path ? searchHit : null}
                       />
                     ))}

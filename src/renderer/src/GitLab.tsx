@@ -5,7 +5,16 @@ import { CommentComposer, type CommentRange } from './CommentComposer'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import gitlabLogo from './assets/gitlab/gitlab.svg'
 import { Switch } from '@/components/ui/switch'
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import {
   Copy,
   Ban,
@@ -397,6 +406,7 @@ export function GitLabProvider({
     onSuccess: (record, variables) =>
       queryClient.setQueryData(['review-record', variables.snapshot], record),
   })
+  const mutateLocal = localMutation.mutateAsync
   const uploadedDiscussions = useRef(new Map<string, string>())
   const uploadedLocal = useRef(new Set<string>())
   const publishingLocal = useRef(false)
@@ -537,111 +547,121 @@ export function GitLabProvider({
       window.removeEventListener('focus', refresh)
     }
   }, [session])
-  const act = async (
-    request: GitLabRequest,
-    options?: { requirePosted: boolean; onPosted?: (discussion: string) => void },
-  ) => {
-    if (actionPending.current) return false
-    actionPending.current = true
-    actionVersion.current++
-    setBusy(true)
-    setError('')
-    const current = generation.current
-    const previous =
-      latestReview.current?.session === review?.session ? latestReview.current : review
-    const optimistic = previous ? optimisticGitLabReview(previous, request) : undefined
-    const changed = optimistic !== previous
-    if (changed) setReview(optimistic)
-    try {
-      const result = await window.desktop.gitlab(request)
-      if (generation.current !== current) return false
-      if (result.review && !changed) setReview(result.review)
-      if (
-        ![
-          'refresh',
-          'open-url',
-          'copy-url',
-          'open-app',
-          'copy-app-link',
-          'open-pipeline',
-          'copy-pipeline-link',
-        ].includes(request.kind)
-      ) {
-        if (session) {
-          try {
-            const refreshed = await window.desktop.gitlab({ kind: 'refresh', session })
-            if (generation.current === current) {
-              latestReview.current = refreshed.review
-              setReview(refreshed.review)
+  const act = useCallback(
+    async (
+      request: GitLabRequest,
+      options?: { requirePosted: boolean; onPosted?: (discussion: string) => void },
+    ) => {
+      if (actionPending.current) return false
+      actionPending.current = true
+      actionVersion.current++
+      setBusy(true)
+      setError('')
+      const current = generation.current
+      const previous =
+        latestReview.current?.session === review?.session ? latestReview.current : review
+      const optimistic = previous ? optimisticGitLabReview(previous, request) : undefined
+      const changed = optimistic !== previous
+      if (changed) setReview(optimistic)
+      try {
+        const result = await window.desktop.gitlab(request)
+        if (generation.current !== current) return false
+        if (result.review && !changed) setReview(result.review)
+        if (
+          ![
+            'refresh',
+            'open-url',
+            'copy-url',
+            'open-app',
+            'copy-app-link',
+            'open-pipeline',
+            'copy-pipeline-link',
+          ].includes(request.kind)
+        ) {
+          if (session) {
+            try {
+              const refreshed = await window.desktop.gitlab({ kind: 'refresh', session })
+              if (generation.current === current) {
+                latestReview.current = refreshed.review
+                setReview(refreshed.review)
+              }
+            } catch (error) {
+              if (generation.current === current)
+                setError(`The action completed, but refresh failed: ${(error as Error).message}`)
             }
-          } catch (error) {
-            if (generation.current === current)
-              setError(`The action completed, but refresh failed: ${(error as Error).message}`)
           }
         }
+        if (result.posted && result.discussion) options?.onPosted?.(result.discussion)
+        return options?.requirePosted ? result.posted === true : true
+      } catch (error) {
+        if (generation.current === current) {
+          if (changed) setReview(previous)
+          setError((error as Error).message)
+        }
+        return false
+      } finally {
+        actionPending.current = false
+        actionVersion.current++
+        if (generation.current === current) setBusy(false)
       }
-      if (result.posted && result.discussion) options?.onPosted?.(result.discussion)
-      return options?.requirePosted ? result.posted === true : true
-    } catch (error) {
-      if (generation.current === current) {
-        if (changed) setReview(previous)
-        setError((error as Error).message)
-      }
-      return false
-    } finally {
-      actionPending.current = false
-      actionVersion.current++
-      if (generation.current === current) setBusy(false)
-    }
-  }
-  const uploadLocal = async (thread: LocalThread, id: string) => {
-    if (!snapshot || !review?.aligned) return false
-    const threadKey = `${review.mr.project_id}:${review.mr.iid}:${snapshot.repository}:${thread.id}`
-    const key = `${threadKey}:${id}`
-    if (!uploadedLocal.current.has(key)) {
-      const file = await window.desktop.loadReviewFile(snapshot.id, thread.path, false)
-      if (file.fingerprint !== thread.fingerprint)
-        throw new Error(
-          `The local comment on ${thread.path} is outdated. Review it before publishing.`,
+    },
+    [review, session],
+  )
+  const uploadLocal = useCallback(
+    async (thread: LocalThread, id: string) => {
+      if (!snapshot || !review?.aligned) return false
+      const threadKey = `${review.mr.project_id}:${review.mr.iid}:${snapshot.repository}:${thread.id}`
+      const key = `${threadKey}:${id}`
+      if (!uploadedLocal.current.has(key)) {
+        const file = await window.desktop.loadReviewFile(snapshot.id, thread.path, false)
+        if (file.fingerprint !== thread.fingerprint)
+          throw new Error(
+            `The local comment on ${thread.path} is outdated. Review it before publishing.`,
+          )
+        const message = thread.messages.find((message) => message.id === id)
+        if (!message) return false
+        const posted = await act(
+          {
+            kind: 'comment',
+            session: review.session,
+            body: message.body,
+            ...(uploadedDiscussions.current.has(threadKey)
+              ? { discussion: uploadedDiscussions.current.get(threadKey)! }
+              : {
+                  anchor: {
+                    path: thread.path,
+                    side: thread.side,
+                    line: thread.end,
+                    startLine: thread.start,
+                  },
+                }),
+          },
+          {
+            requirePosted: true,
+            onPosted: (discussion) => uploadedDiscussions.current.set(threadKey, discussion),
+          },
         )
-      const message = thread.messages.find((message) => message.id === id)
-      if (!message) return false
-      const posted = await act(
-        {
-          kind: 'comment',
-          session: review.session,
-          body: message.body,
-          ...(uploadedDiscussions.current.has(threadKey)
-            ? { discussion: uploadedDiscussions.current.get(threadKey)! }
-            : {
-                anchor: {
-                  path: thread.path,
-                  side: thread.side,
-                  line: thread.end,
-                  startLine: thread.start,
-                },
-              }),
-        },
-        {
-          requirePosted: true,
-          onPosted: (discussion) => uploadedDiscussions.current.set(threadKey, discussion),
-        },
-      )
-      if (!posted) return false
-      uploadedLocal.current.add(key)
-    }
-    try {
-      await localMutation.mutateAsync({
-        snapshot: snapshot.id,
-        action: { kind: 'delete-comment', thread: thread.id, message: id },
-      })
-    } catch (error) {
-      throw new Error(
-        `Posted to GitLab, but the local comment could not be removed. Retry to remove it: ${(error as Error).message}`,
-      )
-    }
-    return true
-  }
+        if (!posted) return false
+        uploadedLocal.current.add(key)
+      }
+      try {
+        await mutateLocal({
+          snapshot: snapshot.id,
+          action: { kind: 'delete-comment', thread: thread.id, message: id },
+        })
+      } catch (error) {
+        throw new Error(
+          `Posted to GitLab, but the local comment could not be removed. Retry to remove it: ${(error as Error).message}`,
+        )
+      }
+      return true
+    },
+    [snapshot, review, act, mutateLocal],
+  )
+  const context = useMemo(
+    () => ({ review, snapshot, busy: busy || publishing, act, uploadLocal }),
+    [review, snapshot, busy, publishing, act, uploadLocal],
+  )
   const publishAllLocal = async () => {
     if (publishingLocal.current || busy || !review?.aligned) return
     publishingLocal.current = true
@@ -728,9 +748,7 @@ export function GitLabProvider({
     </div>
   )
   return (
-    <GitLabContext.Provider
-      value={{ review, snapshot, busy: busy || publishing, act, uploadLocal }}
-    >
+    <GitLabContext.Provider value={context}>
       {!(boundSnapshot === snapshot?.id && open) && errorNotification}
       <GitLabButtonContext.Provider
         value={
@@ -1195,9 +1213,7 @@ export function GitLabProvider({
                             key={thread.id}
                             thread={thread}
                             snapshot={snapshot!}
-                            mutate={(action) =>
-                              localMutation.mutateAsync({ snapshot: snapshot!.id, action })
-                            }
+                            mutate={(action) => mutateLocal({ snapshot: snapshot!.id, action })}
                             pending={localMutation.isPending || publishing}
                             onNavigate={
                               snapshot?.paths.includes(thread.path)

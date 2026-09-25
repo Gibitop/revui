@@ -34,7 +34,7 @@ export function IDEButton({
   workspaceId: string | null
   path: string | null
   line: number
-  settings: Settings
+  settings: Pick<Settings, 'preferredIDE'>
   disabled?: boolean
 }) {
   const [busy, setBusy] = useState(false)
