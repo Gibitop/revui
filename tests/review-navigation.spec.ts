@@ -364,6 +364,23 @@ test('file-tree navigation stays aligned as distant diffs load and yields to man
       }),
     ).toBeLessThan(-100)
 
+    await page.setViewportSize({ width: 1100, height: 450 })
+    await page.getByRole('article', { name: paths[14], exact: true }).evaluate((file) => {
+      const scroll = file.closest('[data-testid="diff-scroll"]')!.firstElementChild!
+      scroll.scrollTop += file.getBoundingClientRect().top - scroll.getBoundingClientRect().top + 30
+    })
+    await expect(selectedItems).toHaveAccessibleName('file-14.ts')
+    await expect(selectedItems).toBeInViewport()
+    await page
+      .getByTestId('diff-scroll')
+      .locator(':scope > div')
+      .evaluate((scroll) => {
+        scroll.scrollTop = 0
+      })
+    await expect(selectedItems).toHaveAccessibleName('file-00.ts')
+    await expect(selectedItems).toBeInViewport()
+    await page.setViewportSize({ width: 1100, height: 900 })
+
     await page.getByRole('treeitem', { name: /file-00.ts/ }).click()
     await expect(
       page.getByRole('article', { name: paths[0], exact: true }).locator('[data-line]').first(),

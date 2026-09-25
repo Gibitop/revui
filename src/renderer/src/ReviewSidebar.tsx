@@ -446,7 +446,7 @@ function ReviewOrder({
             <section
               key={section.id}
               data-selected-section={visible.includes(selected) ? 'true' : undefined}
-              className="mb-3 border-t pt-3"
+              className="mb-3 border-t pt-3 last:mb-0 last:min-h-full"
               aria-label={`Review step ${index + 1}: ${section.title}`}
             >
               <div className="sticky top-0 z-10 bg-surface py-2" data-testid="review-step-header">
@@ -613,12 +613,30 @@ const ReviewTree = memo(function ReviewTree({
       for (const path of model.getSelectedPaths()) {
         if (path !== selected) model.getItem(path)?.deselect()
       }
-      model.getItem(selected)?.select()
+      const item = model.getItem(selected)
+      if (item) {
+        const parts = selected.split('/')
+        for (let index = 1; index < parts.length; index++) {
+          const parent = model.getItem(parts.slice(0, index).join('/'))
+          if (parent && 'expand' in parent) parent.expand()
+        }
+        item.select()
+      }
     } finally {
       syncingSelection.current = false
     }
-    model.scrollToPath(selected, { focus: false })
-  }, [model, selected, prepared])
+    model.scrollToPath(selected, { focus: false, offset: 'nearest' })
+    if (!section) return
+    const frame = requestAnimationFrame(() => {
+      const host = model.getFileTreeContainer()
+      const row = host?.shadowRoot?.querySelector<HTMLElement>('[aria-selected="true"]')
+      if (!row) return
+      const header = host?.closest('section')?.querySelector('[data-testid="review-step-header"]')
+      row.style.scrollMarginTop = `${header?.getBoundingClientRect().height ?? 0}px`
+      row.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [model, selected, prepared, section])
   const treeHeight = useFileTreeSelector(model, (tree) =>
     Math.max(tree.getItemHeight(), tree.getVisibleCount() * tree.getItemHeight()),
   )
@@ -700,7 +718,7 @@ const ReviewTree = memo(function ReviewTree({
           HTMLElement | undefined
         if (row?.dataset.itemPath === selected) onSelect(selected)
       }}
-      className="file-tree block min-h-0 flex-1"
+      className={`file-tree block min-h-0 flex-1 ${section ? '[--trees-padding-inline-override:0px]' : ''}`}
       style={{ colorScheme: theme, ...(section ? { height: treeHeight, flex: 'none' } : {}) }}
     />
   )

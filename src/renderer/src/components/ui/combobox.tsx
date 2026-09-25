@@ -23,11 +23,14 @@ export function ComboboxInput({
 }
 export function ComboboxContent({
   children,
+  container,
   className,
   ...props
-}: ComponentProps<typeof ComboboxPrimitive.Popup>) {
+}: ComponentProps<typeof ComboboxPrimitive.Popup> & {
+  container?: ComponentProps<typeof ComboboxPrimitive.Portal>['container']
+}) {
   return (
-    <ComboboxPrimitive.Portal>
+    <ComboboxPrimitive.Portal container={container}>
       <ComboboxPrimitive.Positioner sideOffset={5} className="z-40">
         <ComboboxPrimitive.Popup
           data-slot="combobox-content"

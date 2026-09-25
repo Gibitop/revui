@@ -225,10 +225,12 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
     }, repository)
     await page.getByRole('button', { name: 'Open repository', exact: true }).click()
     await page.getByRole('button', { name: 'Open folder…', exact: true }).click()
+    await page.getByRole('button', { name: 'Edit comparison', exact: true }).click()
     await page.getByRole('combobox', { name: 'Old', exact: true }).fill('main')
     await page.getByRole('combobox', { name: 'Old', exact: true }).press('Escape')
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('feature')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
+    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     const button = page.getByRole('button', { name: 'Merge request', exact: true })
     await expect.poll(() => searches).toBe(1)
     await expect(button).not.toHaveClass(/text-git-deleted/)
@@ -279,7 +281,8 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
       viewport =
         page.viewportSize() ??
         (await page.evaluate(() => ({ width: innerWidth, height: innerHeight })))
-    expect(bounds!.x).toBeGreaterThan(viewport.width / 3)
+    expect(bounds!.width).toBeCloseTo(Math.min(700, viewport.width - 48), 0)
+    expect(bounds!.x + bounds!.width).toBeCloseTo(viewport.width, 0)
     await overlay
       .getByRole('textbox', { name: 'GitLab comment', exact: true })
       .fill('General comment')
@@ -527,11 +530,15 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
     await page.getByRole('button', { name: 'Close merge request' }).click()
     // In-flight results from a previous comparison must not reopen its MR overlay.
     delay = 400
+    await page.getByRole('button', { name: 'Edit comparison', exact: true }).click()
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('main')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
+    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await expect.poll(() => searches).toBe(before + 1)
+    await page.getByRole('button', { name: 'Edit comparison', exact: true }).click()
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('Uncommitted')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
+    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await expect(button).toHaveAttribute('aria-busy', 'false')
     await button.click()
     await expect(button).toHaveClass(/text-git-deleted/)
@@ -539,8 +546,10 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
     // Opening a branch comparison finds the MR automatically without opening the overlay.
     currentHead = head
     delay = 0
+    await page.getByRole('button', { name: 'Edit comparison', exact: true }).click()
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('feature')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
+    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await expect.poll(() => searches).toBe(before + 2)
     await expect(button).toHaveAttribute('aria-busy', 'false')
     await expect(page.getByRole('dialog')).toBeHidden()
@@ -582,8 +591,8 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
       .fill(`${baseURL}/group/repo/-/merge_requests/3/diffs`)
     await picker.getByRole('button', { name: 'Open MR', exact: true }).click()
     await expect(picker).toBeHidden()
-    await expect(page.getByRole('combobox', { name: 'Old', exact: true })).toHaveValue(base)
-    await expect(page.getByRole('combobox', { name: 'New', exact: true })).toHaveValue(head)
+    await expect(page.getByTestId('comparison-controls')).toContainText(base)
+    await expect(page.getByTestId('comparison-controls')).toContainText(head)
     await expect(button).toHaveAttribute('aria-busy', 'false')
     await button.click()
     await expect(overlay).toBeVisible()

@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import type { RevisionSuggestion } from '../../shared/review'
 import {
   GitBranch,
@@ -22,16 +22,19 @@ import { Label } from '@/components/ui/label'
 
 export function RevisionSelect({
   label,
+  description,
   value,
   onChange,
   suggestions,
 }: {
   label: string
+  description: string
   value: string
   onChange: (value: string) => void
   suggestions: RevisionSuggestion[]
 }) {
   const id = useId()
+  const container = useRef<HTMLDivElement>(null)
   const [filter, setFilter] = useState('')
   const matches = suggestions
     .filter((suggestion) => suggestion.value.toLowerCase().includes(filter.toLowerCase()))
@@ -54,27 +57,38 @@ export function RevisionSelect({
         if (next) onChange(next)
       }}
     >
-      <div className="flex w-[clamp(130px,16vw,210px)] items-center rounded-md border border-input bg-background">
-        <Label htmlFor={id} className="pl-2 text-muted-foreground">
+      <div ref={container} className="min-w-0 space-y-2">
+        <Label
+          htmlFor={id}
+          className={label === 'Old' ? 'text-git-deleted/60' : 'text-git-added/60'}
+        >
           {label}
         </Label>
-        <RevisionIcon kind={suggestions.find((item) => item.value === value)?.kind ?? 'commit'} />
-        <ComboboxInput
-          id={id}
-          required
-          onFocus={(event) => {
-            setFilter('')
-            event.currentTarget.select()
-          }}
-        />
-        <ComboboxTrigger
-          aria-label={`Suggest ${label.toLowerCase()} revisions`}
-          className="p-1.5 text-muted-foreground"
-        >
-          <ChevronDown size={14} />
-        </ComboboxTrigger>
+        <div className="flex w-full items-center rounded-md border border-input bg-background px-2 focus-within:ring-2 focus-within:ring-ring">
+          <RevisionIcon kind={suggestions.find((item) => item.value === value)?.kind ?? 'commit'} />
+          <ComboboxInput
+            id={id}
+            aria-describedby={`${id}-description`}
+            placeholder="Branch, tag, or commit…"
+            className="h-10 focus-visible:ring-0"
+            required
+            onFocus={(event) => {
+              setFilter('')
+              event.currentTarget.select()
+            }}
+          />
+          <ComboboxTrigger
+            aria-label={`Suggest ${label.toLowerCase()} revisions`}
+            className="p-1.5 text-muted-foreground"
+          >
+            <ChevronDown size={14} />
+          </ComboboxTrigger>
+        </div>
+        <p id={`${id}-description`} className="text-xs text-muted-foreground">
+          {description}
+        </p>
       </div>
-      <ComboboxContent>
+      <ComboboxContent container={container}>
         <ComboboxEmpty className="p-1.5 text-muted-foreground">
           No matching suggestions
         </ComboboxEmpty>
@@ -96,7 +110,7 @@ export function RevisionSelect({
   )
 }
 
-function RevisionIcon({ kind }: { kind: RevisionSuggestion['kind'] }) {
+export function RevisionIcon({ kind }: { kind: RevisionSuggestion['kind'] }) {
   const Icon = {
     branch: GitBranch,
     commit: GitCommitHorizontal,

@@ -17,7 +17,7 @@ export type Settings = {
   repositoryCommands: Record<string, ToolCommands>
   version: 1
   theme: 'system' | 'light' | 'dark'
-  diffLayout: 'split' | 'unified'
+  diffLayout: 'auto' | 'split' | 'unified'
   reviewLayout: 'continuous' | 'focused'
   wrapLines: boolean
   sidebarCollapsed: boolean
@@ -45,6 +45,7 @@ export type DesktopAPI = {
   onAIChanged: (listener: (state: AIState) => void) => () => void
   gitlab: (request: GitLabRequest) => Promise<GitLabResult>
   findWorkspace: (snapshot: string) => Promise<Workspace | null>
+  workspaceMatches: (snapshot: string, workspace: string | null) => Promise<boolean>
   initializeWorkspace: (
     snapshot: string,
     workspace: string | null,
@@ -104,6 +105,7 @@ export const channels = {
   acknowledgeRestoration: 'workspace:acknowledge',
   cancelWorkspaceScript: 'workspace:cancel-script',
   findWorkspace: 'workspace:find',
+  workspaceMatches: 'workspace:matches',
   initializeWorkspace: 'workspace:initialize',
   workspaceAction: 'workspace:action',
   listWorkspaces: 'workspace:list',

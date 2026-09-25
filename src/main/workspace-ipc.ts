@@ -63,6 +63,17 @@ export async function registerWorkspaceIPC(
     sender(event)
     return workspaces.findMatching(await reviews.workspaceSnapshot(z.string().uuid().parse(id)))
   })
+  ipcMain.handle(channels.workspaceMatches, async (event, id, workspaceId) => {
+    sender(event)
+    const snapshot = await reviews.workspaceSnapshot(z.string().uuid().parse(id))
+    let path = snapshot.repository
+    if (workspaceId !== null) {
+      const record = workspace(workspaceId)
+      if (record.repository !== snapshot.repository || record.phase !== 'ready') return false
+      path = record.path
+    }
+    return workspaceMatches(snapshot, path)
+  })
   ipcMain.handle(channels.initializeWorkspace, async (event, id, workspaceId) => {
     sender(event)
     if (script) throw new Error('A setup script is already running')

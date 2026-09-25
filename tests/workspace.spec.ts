@@ -50,8 +50,10 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
       .getByRole('dialog', { name: 'Open repository' })
       .getByRole('button', { name: 'Open folder…', exact: true })
       .click()
+    await page.getByRole('button', { name: 'Edit comparison', exact: true }).click()
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('HEAD~1')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
+    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
     await expect(page.getByRole('tab', { name: 'Appearance', exact: true })).toHaveAttribute(
       'aria-selected',
@@ -132,6 +134,83 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
     await expect(page.getByRole('status')).toContainText('Changes saved')
     await expect(page.getByLabel('Post-checkout script')).toHaveValue('echo REVUI_SETUP_OK')
     await page.getByRole('dialog').press('Escape')
+    const fileIDE = page.getByRole('button', {
+      name: /^Open file.txt in (VS Code|Cursor)$/,
+      includeHidden: true,
+    })
+    const fileIDEMenu = page.getByRole('button', {
+      name: 'Choose IDE for file.txt',
+      exact: true,
+      includeHidden: true,
+    })
+    // A matching checkout can open files without creating a workspace or running setup.
+    await page.getByRole('button', { name: 'Edit comparison', exact: true }).click()
+    await page.getByRole('combobox', { name: 'Old', exact: true }).fill('HEAD~1')
+    await page.getByRole('combobox', { name: 'Old', exact: true }).press('Escape')
+    await page.getByRole('combobox', { name: 'New', exact: true }).fill('release')
+    await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
+    await page.getByRole('button', { name: 'Compare', exact: true }).click()
+    await expect(fileIDE).toBeEnabled()
+    await expect(fileIDEMenu).toBeEnabled()
+    await expect(
+      page.getByRole('button', { name: 'Open project in VS Code', exact: true }),
+    ).toBeEnabled()
+    await fileIDE.click()
+    await expect
+      .poll(async () => JSON.parse(await readFile(ideOutput, 'utf8').catch(() => '[]')))
+      .toEqual(['--goto', `${await realpath(join(repository, 'file.txt'))}:1`])
+    expect(
+      await page.evaluate(
+        (path) => window.desktop.listWorkspaces(path),
+        await realpath(repository),
+      ),
+    ).toHaveLength(0)
+    await page.getByRole('button', { name: 'Edit comparison', exact: true }).click()
+    await page.getByRole('combobox', { name: 'Old', exact: true }).fill('HEAD')
+    await page.getByRole('combobox', { name: 'Old', exact: true }).press('Escape')
+    await page.getByRole('combobox', { name: 'New', exact: true }).fill('HEAD~1')
+    await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
+    await page.getByRole('button', { name: 'Compare', exact: true }).click()
+    await expect(fileIDE).toBeDisabled()
+    await expect(fileIDEMenu).toBeDisabled()
+    const toolbar = page.getByRole('banner', { name: 'Repository toolbar', includeHidden: true })
+    const projectIDE = toolbar.getByRole('button', {
+      name: /^Open project in (VS Code|Cursor)$/,
+      exact: true,
+      includeHidden: true,
+    })
+    await expect(projectIDE).toBeDisabled()
+    await expect(fileIDE).toBeDisabled()
+    await expect(fileIDEMenu).toBeDisabled()
+    await toolbar.getByRole('group', { name: 'Open project in IDE' }).hover()
+    await expect(page.getByRole('tooltip')).toContainText('Check out the comparison target')
+    await toolbar.getByRole('button', { name: 'Initialize workspace', exact: true }).click()
+    await expect(
+      page.getByRole('heading', { name: 'Prepare workspace', exact: true }),
+    ).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('workspace-checkout.png') })
+    await page.evaluate(() =>
+      window.desktop.updatePreferences({
+        workspaceCommands: { script: 'echo SETUP_FAILED && exit 1' },
+      }),
+    )
+    await page.getByRole('button', { name: 'Prepare workspace', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('exited with 1')
+    await expect(page.getByRole('heading', { name: 'Workspace setup failed' })).toBeVisible()
+    await expect(page.getByLabel('Setup output')).toContainText('SETUP_FAILED')
+    await expect(projectIDE).toBeEnabled()
+    await expect(fileIDE).toBeEnabled()
+    await expect(fileIDEMenu).toBeEnabled()
+    await page.evaluate(() =>
+      window.desktop.updatePreferences({ workspaceCommands: { script: 'echo REVUI_SETUP_OK' } }),
+    )
+    await page.getByRole('button', { name: 'Retry setup', exact: true }).click()
+    await expect(projectIDE).toBeEnabled()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    const repo = await realpath(repository)
+    const records = await page.evaluate((path) => window.desktop.listWorkspaces(path), repo)
+    expect(records).toHaveLength(1)
+    expect(await readFile(join(records[0].path, 'file.txt'), 'utf8')).toBe('before\n')
     await expect(
       page.getByRole('button', { name: 'Open file.txt in VS Code', exact: true }),
     ).toBeEnabled()
@@ -147,48 +226,14 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
     await page.getByRole('menuitem', { name: 'Cursor', exact: true }).click()
     await expect
       .poll(async () => JSON.parse(await readFile(ideOutput, 'utf8').catch(() => '[]')))
-      .toEqual(['--goto', `${await realpath(join(repository, 'file.txt'))}:1`])
+      .toEqual(['--goto', `${await realpath(join(records[0].path, 'file.txt'))}:1`])
     await expect(
       page.getByRole('button', { name: 'Open file.txt in Cursor', exact: true }),
     ).toHaveText('')
     await page.getByRole('button', { name: 'Open z-other.txt in Cursor', exact: true }).click()
     await expect
       .poll(async () => JSON.parse(await readFile(ideOutput, 'utf8').catch(() => '[]')))
-      .toEqual(['--goto', `${await realpath(join(repository, 'z-other.txt'))}:1`])
-    const toolbar = page.getByRole('banner', { name: 'Repository toolbar', includeHidden: true })
-    const projectIDE = toolbar.getByRole('button', {
-      name: 'Open project in Cursor',
-      exact: true,
-      includeHidden: true,
-    })
-    await expect(projectIDE).toBeDisabled()
-    await toolbar.getByRole('group', { name: 'Open project in IDE' }).hover()
-    await expect(page.getByRole('tooltip')).toContainText('Initialize the workspace')
-    await toolbar.getByRole('button', { name: 'Initialize workspace', exact: true }).click()
-    await expect(
-      page.getByRole('heading', { name: 'Prepare workspace', exact: true }),
-    ).toBeVisible()
-    await page.screenshot({ path: testInfo.outputPath('workspace-checkout.png') })
-    await page.evaluate(() =>
-      window.desktop.updatePreferences({
-        workspaceCommands: { script: 'echo SETUP_FAILED && exit 1' },
-      }),
-    )
-    await page.getByRole('button', { name: 'Prepare workspace', exact: true }).click()
-    await expect(page.getByRole('alert')).toContainText('exited with 1')
-    await expect(page.getByRole('heading', { name: 'Workspace setup failed' })).toBeVisible()
-    await expect(page.getByLabel('Setup output')).toContainText('SETUP_FAILED')
-    await expect(projectIDE).toBeDisabled()
-    await page.evaluate(() =>
-      window.desktop.updatePreferences({ workspaceCommands: { script: 'echo REVUI_SETUP_OK' } }),
-    )
-    await page.getByRole('button', { name: 'Retry setup', exact: true }).click()
-    await expect(projectIDE).toBeEnabled()
-    await expect(page.getByRole('dialog')).toHaveCount(0)
-    const repo = await realpath(repository)
-    const records = await page.evaluate((path) => window.desktop.listWorkspaces(path), repo)
-    expect(records).toHaveLength(1)
-    expect(await readFile(join(records[0].path, 'file.txt'), 'utf8')).toBe('before\n')
+      .toEqual(['--goto', `${await realpath(join(records[0].path, 'z-other.txt'))}:1`])
     await expect(projectIDE).toBeEnabled()
     await projectIDE.click()
     await expect
@@ -240,6 +285,8 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
     await expect(deleting).toHaveAttribute('aria-busy', 'true')
     await expect(deleting.locator('svg')).toHaveClass(/animate-spin/)
     await expect(projectIDE).toBeDisabled()
+    await expect(fileIDE).toBeDisabled()
+    await expect(fileIDEMenu).toBeDisabled()
     await expect(page.getByRole('button', { name: 'Remove worktree', exact: true })).toBeEnabled()
     await expect(deleting).toHaveCount(0)
     await expect(projectIDE).toBeEnabled()
@@ -251,6 +298,8 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
     await expect(page.getByRole('button', { name: 'Remove worktree' })).toHaveCount(0)
     await page.getByRole('dialog').press('Escape')
     await expect(projectIDE).toBeDisabled()
+    await expect(fileIDE).toBeDisabled()
+    await expect(fileIDEMenu).toBeDisabled()
     await toolbar.getByRole('button', { name: 'Initialize workspace', exact: true }).click()
     await page.getByRole('radio', { name: 'Current checkout', exact: true }).check()
     await application.evaluate(({ dialog }) => {
@@ -293,8 +342,10 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
         }),
       process.execPath,
     )
+    await page.getByRole('button', { name: 'Edit comparison', exact: true }).click()
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('release')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
+    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     await toolbar.getByRole('button', { name: 'Initialize workspace', exact: true }).click()
     await expect(toolbar.getByRole('button', { name: 'Cancel setup', exact: true })).toBeVisible()
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -307,7 +358,7 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
       .poll(async () => JSON.parse(await readFile(ideOutput, 'utf8').catch(() => '[]')))
       .toEqual([repo])
     expect(await page.evaluate((path) => window.desktop.listWorkspaces(path), repo)).toHaveLength(1)
-    // Failed setup disables project opening and can be retried without another checkout.
+    // Failed setup can be retried; a matching checkout can still open in the IDE.
     await page.evaluate(() =>
       window.desktop.updatePreferences({
         workspaceCommands: { script: 'echo SETUP_FAILED && exit 1' },
@@ -317,7 +368,7 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
     await expect(page.getByRole('alert')).toContainText('exited with 1')
     await expect(page.getByRole('heading', { name: 'Workspace setup failed' })).toBeVisible()
     await expect(page.getByLabel('Setup output')).toContainText('SETUP_FAILED')
-    await expect(projectIDE).toBeDisabled()
+    await expect(projectIDE).toBeEnabled()
     await page.evaluate(() =>
       window.desktop.updatePreferences({ workspaceCommands: { script: 'echo RETRY_OK' } }),
     )

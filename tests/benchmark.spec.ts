@@ -70,10 +70,12 @@ test('100,000 tracked files and 1,000 changed files', async ({}, testInfo) => {
       .getByRole('button')
       .first()
       .click()
+    await page.getByRole('button', { name: 'Edit comparison', exact: true }).click()
     await page.getByRole('combobox', { name: 'New', exact: true }).fill('HEAD')
     await page.getByRole('combobox', { name: 'New', exact: true }).press('Escape')
     await page.getByRole('combobox', { name: 'Old', exact: true }).fill('HEAD~1')
     await page.getByRole('combobox', { name: 'Old', exact: true }).press('Escape')
+    await page.getByRole('button', { name: 'Compare', exact: true }).click()
     const firstVisibleMs = await page.evaluate(
       () =>
         new Promise<number>((resolve) => {

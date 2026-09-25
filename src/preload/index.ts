@@ -15,6 +15,7 @@ const desktop: DesktopAPI = {
   gitlab: (request) => ipcRenderer.invoke(channels.gitlab, request),
   workspaceAction: (...args) => ipcRenderer.invoke(channels.workspaceAction, ...args),
   findWorkspace: (...args) => ipcRenderer.invoke(channels.findWorkspace, ...args),
+  workspaceMatches: (...args) => ipcRenderer.invoke(channels.workspaceMatches, ...args),
   initializeWorkspace: (...args) => ipcRenderer.invoke(channels.initializeWorkspace, ...args),
   acknowledgeRestoration: (...args) => ipcRenderer.invoke(channels.acknowledgeRestoration, ...args),
   cancelWorkspaceScript: () => ipcRenderer.invoke(channels.cancelWorkspaceScript),

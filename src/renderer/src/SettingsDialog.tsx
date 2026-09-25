@@ -110,8 +110,9 @@ export function SettingsDialog({
                     {
                       key: 'diffLayout',
                       label: 'Diff layout',
-                      description: 'Show changes side by side or in a single column.',
+                      description: 'Auto uses split view, switching to unified in narrow panes.',
                       options: [
+                        { value: 'auto', label: 'Auto' },
                         { value: 'split', label: 'Split' },
                         { value: 'unified', label: 'Unified' },
                       ],

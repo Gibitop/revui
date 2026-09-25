@@ -41,8 +41,10 @@ export function ReviewFileCard({
   threadVisit,
   searchHit,
   workspaceId,
+  workspaceReady,
 }: {
   workspaceId: string | null
+  workspaceReady: boolean
   snapshot: Snapshot
   path: string
   record?: ReviewRecord
@@ -57,6 +59,16 @@ export function ReviewFileCard({
   const gitlab = useGitLab()
   const virtualizer = useVirtualizer()
   const root = useRef<HTMLElement>(null)
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    if (settings.diffLayout !== 'auto' || !root.current) return
+    // Leave at least 400px per column in split view, accounting for side panels.
+    const observer = new ResizeObserver(([entry]) => {
+      setNarrow(entry.contentRect.width < 800)
+    })
+    observer.observe(root.current)
+    return () => observer.disconnect()
+  }, [settings.diffLayout])
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
   useEffect(() => {
@@ -210,7 +222,8 @@ export function ReviewFileCard({
   const options = {
     theme: { dark: 'pierre-dark', light: 'pierre-light' } as const,
     themeType: theme,
-    diffStyle: settings.diffLayout,
+    diffStyle:
+      settings.diffLayout === 'auto' ? (narrow ? 'unified' : 'split') : settings.diffLayout,
     disableFileHeader: true,
     enableLineSelection: true,
     enableGutterUtility: true,
@@ -484,6 +497,7 @@ export function ReviewFileCard({
         <IDEButton
           repository={snapshot.repository}
           workspaceId={workspaceId}
+          disabled={!workspaceReady}
           path={path}
           line={
             range && range.side !== 'deletions' && range.endSide !== 'deletions'

@@ -171,11 +171,13 @@ function ReviewSession({
   }, [initialComparison, openComparison, queryClient])
   const comparisonChange = useRef(0)
   const [selected, setSelected] = useState('')
+  const diffScrollRef = useRef<HTMLDivElement>(null)
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null)
   const workspaceTools = useRef<{ initialize: () => void }>(null)
   const [workspaceStatus, setWorkspaceStatus] = useState<{
     snapshot: string
     ready: boolean
+    ideReady: boolean
     busy: boolean
   }>()
 
@@ -489,6 +491,40 @@ function ReviewSession({
     }
   }, [scrollTarget, snapshot.data, paths, settings.reviewLayout, threadFocus, searchHit])
 
+  const syncScrolledFile = useEffectEvent(() => {
+    if (scrollTarget || visiblePaths.length < 2) return
+    const scroll = diffScrollRef.current?.firstElementChild
+    const content = scroll?.firstElementChild
+    if (!scroll || !content) return
+    const top = scroll.getBoundingClientRect().top + 1
+    let active = content.firstElementChild
+    for (const card of content.children) {
+      if (card.getBoundingClientRect().top > top) break
+      active = card
+    }
+    if (scroll.scrollTop > 0 && scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 1)
+      active = content.lastElementChild
+    const path = active?.getAttribute('aria-label')
+    if (path && path !== selected && visiblePaths.includes(path)) {
+      setSelected(path)
+      setThreadFocus(null)
+    }
+  })
+  useEffect(() => {
+    const scroll = diffScrollRef.current?.firstElementChild
+    if (!scroll) return
+    let frame = 0
+    const onScroll = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => syncScrolledFile())
+    }
+    scroll.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      scroll.removeEventListener('scroll', onScroll)
+      cancelAnimationFrame(frame)
+    }
+  }, [])
+
   return (
     <>
       {toolbar &&
@@ -505,7 +541,10 @@ function ReviewSession({
                   .leaveWorkspace(repository.path)
                   .then((allowed) => {
                     if (allowed && change === comparisonChange.current) {
-                      if (!refresh) setMrIid(undefined)
+                      if (!refresh) {
+                        setMrIid(undefined)
+                        setControls((current) => ({ comparison, version: current.version }))
+                      }
                       openComparison(comparison, refresh)
                     }
                   })
@@ -659,13 +698,18 @@ function ReviewSession({
                 </p>
               )}
 
-              <div data-testid="diff-scroll" className="flex min-h-0 flex-1">
+              <div ref={diffScrollRef} data-testid="diff-scroll" className="flex min-h-0 flex-1">
                 <Virtualizer className="min-h-0 flex-1 overflow-auto overscroll-contain">
                   {snapshot.data &&
                     visiblePaths.map((path) => (
                       <ReviewFileCard
                         key={`${snapshot.data!.id}:${path}`}
                         workspaceId={activeWorkspace}
+                        workspaceReady={
+                          workspaceStatus?.snapshot === snapshot.data!.id &&
+                          workspaceStatus.ideReady &&
+                          !workspaceStatus.busy
+                        }
                         snapshot={snapshot.data!}
                         path={path}
                         record={records.data}

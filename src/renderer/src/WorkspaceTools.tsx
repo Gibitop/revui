@@ -16,7 +16,12 @@ export function WorkspaceTools({
   onStatus,
 }: {
   ref?: Ref<{ initialize: () => void }>
-  onStatus?: (status: { snapshot: string; ready: boolean; busy: boolean }) => void
+  onStatus?: (status: {
+    snapshot: string
+    ready: boolean
+    ideReady: boolean
+    busy: boolean
+  }) => void
   snapshot: Snapshot
   active: string | null
   setActive: (id: string | null) => void
@@ -25,11 +30,33 @@ export function WorkspaceTools({
   const operation = useRef(0)
   const [open, setOpen] = useState(false)
   const [ready, setReady] = useState(false)
+  const [ideReady, setIdeReady] = useState(false)
   const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    onStatus?.({ snapshot: snapshot.id, ready, busy })
-  }, [snapshot.id, ready, busy, onStatus])
   const [removing, setRemoving] = useState<string | null>(null)
+  useEffect(() => {
+    onStatus?.({ snapshot: snapshot.id, ready, ideReady, busy: busy || !!removing })
+  }, [snapshot.id, ready, ideReady, busy, removing, onStatus])
+  useEffect(() => {
+    let canceled = false
+    setIdeReady(false)
+    if (busy || removing) return
+    const check = () => {
+      void window.desktop.workspaceMatches(snapshot.id, active).then(
+        (matches) => {
+          if (!canceled) setIdeReady(matches)
+        },
+        () => {
+          if (!canceled) setIdeReady(false)
+        },
+      )
+    }
+    check()
+    window.addEventListener('focus', check)
+    return () => {
+      canceled = true
+      window.removeEventListener('focus', check)
+    }
+  }, [snapshot.id, active, busy, removing])
   const [choice, setChoice] = useState<'worktree' | 'in-place'>('worktree')
   const [needsCheckout, setNeedsCheckout] = useState(false)
   const [error, setError] = useState('')
@@ -159,7 +186,7 @@ export function WorkspaceTools({
         path={null}
         line={1}
         settings={settings}
-        disabled={!ready || busy || !!removing}
+        disabled={!ideReady || busy || !!removing}
       />
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent

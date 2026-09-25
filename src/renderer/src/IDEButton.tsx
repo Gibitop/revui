@@ -59,7 +59,7 @@ export function IDEButton({
       <Tooltip
         label={
           disabled
-            ? 'Initialize the workspace before opening the project in an IDE.'
+            ? 'Check out the comparison target or initialize a workspace to open it in an IDE.'
             : `Open ${label} in ${ideChoices[selected]}`
         }
       >
