@@ -80,6 +80,7 @@ export type GitLabReview = {
   aligned: boolean
 }
 export type GitLabRequest =
+  | { kind: 'list-mrs'; repository: string }
   | { kind: 'open-mr'; repository: string; input: string }
   | { kind: 'config' }
   | { kind: 'configure'; url: string; token: string; caCertificate?: string; ignoreTls?: boolean }

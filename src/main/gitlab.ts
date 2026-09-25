@@ -28,6 +28,7 @@ const anchor = z.object({
   startLine: z.number().int().positive().optional(),
 })
 export const gitlabRequestSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('list-mrs'), repository: z.string().min(1).max(32768) }),
   z.object({
     kind: z.literal('open-mr'),
     repository: z.string().min(1).max(32768),
@@ -628,7 +629,7 @@ export class GitLabService {
       this.avatars.clear()
       return { config: this.config() }
     }
-    if (input.kind === 'open-mr') {
+    if (input.kind === 'open-mr' || input.kind === 'list-mrs') {
       if (!this.credentials?.encrypted) throw new Error('Configure GitLab in Settings first.')
       const { stdout } = await exec(
         'git',
@@ -636,6 +637,18 @@ export class GitLabService {
         { timeout: 10000, windowsHide: true },
       )
       const projectPath = projectFromOrigin(stdout.trim(), this.credentials.url)
+      if (input.kind === 'list-mrs') {
+        const project = await this.api<{ id: number }>(
+          `projects/${encodeURIComponent(projectPath)}`,
+        )
+        const params = new URLSearchParams({
+          state: 'opened',
+          scope: 'all',
+          order_by: 'updated_at',
+          sort: 'desc',
+        })
+        return { matches: await this.api<MR[]>(`projects/${project.id}/merge_requests?${params}`) }
+      }
       const value = input.input.trim()
       let number = /^!?([1-9]\d*)$/.exec(value)?.[1]
       if (!number) {

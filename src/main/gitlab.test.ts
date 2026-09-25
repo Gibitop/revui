@@ -113,8 +113,10 @@ async function fixture() {
     else if (path === 'version') value = { version: '18.0.0' }
     else if (path === 'projects/group/nested/repo') value = { id: 12 }
     else if (path.endsWith('/merge_requests')) {
-      expect(url.searchParams.get('source_branch')).toBe('feature/a')
-      expect(url.searchParams.get('target_branch')).toBe('main')
+      if (url.searchParams.has('source_branch')) {
+        expect(url.searchParams.get('source_branch')).toBe('feature/a')
+        expect(url.searchParams.get('target_branch')).toBe('main')
+      }
       if (url.searchParams.get('page') === '1') {
         value = [{ ...mr, iid: 8, source_project_id: 99 }]
         headers['x-next-page'] = '2'
@@ -693,6 +695,41 @@ it('surfaces permission failures separately from missing MRs and degrades unavai
   await expect(
     f.service.handle({ kind: 'comment', session: review.session, body: 'keep on failure' }),
   ).rejects.toThrow('permission denied')
+})
+
+describe('list open MRs for a repository', () => {
+  it('includes fork MRs and all pages without branch filters or clearing the active review', async () => {
+    const f = await fixture()
+    const review = await f.select()
+    const result = await f.service.handle({ kind: 'list-mrs', repository: f.directory })
+    expect(result.matches?.map((mr) => mr.iid)).toEqual([8, 7])
+    const request = f.requests.at(-1)!.url
+    expect(request.pathname).toBe('/api/v4/projects/12/merge_requests')
+    expect(Object.fromEntries(request.searchParams)).toMatchObject({
+      state: 'opened',
+      scope: 'all',
+      order_by: 'updated_at',
+      sort: 'desc',
+      page: '2',
+    })
+    expect(request.searchParams.has('source_branch')).toBe(false)
+    expect(request.searchParams.has('target_branch')).toBe(false)
+    expect(
+      (await f.service.handle({ kind: 'refresh', session: review.session })).review?.mr.iid,
+    ).toBe(7)
+  })
+
+  it('requires configuration and reports API failures', async () => {
+    const f = await fixture()
+    f.deny('/merge_requests')
+    await expect(f.service.handle({ kind: 'list-mrs', repository: f.directory })).rejects.toThrow(
+      'permission denied',
+    )
+    await f.service.handle({ kind: 'disconnect' })
+    await expect(f.service.handle({ kind: 'list-mrs', repository: f.directory })).rejects.toThrow(
+      'Configure GitLab',
+    )
+  })
 })
 
 describe('open MR from a recent repository', () => {

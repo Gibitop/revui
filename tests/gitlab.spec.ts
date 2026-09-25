@@ -114,7 +114,7 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
     else if (decodeURIComponent(url.pathname).endsWith('/projects/group/repo'))
       data = { id: 1, email: 'reviewer@example.com' }
     else if (url.pathname.endsWith('/merge_requests')) {
-      searches++
+      if (url.searchParams.has('source_branch')) searches++
       if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
       data = exists ? [mr] : []
     } else if (url.pathname.endsWith('/versions'))
@@ -580,6 +580,25 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
     ).toBe(true)
     await overlay.getByRole('button', { name: 'Close merge request' }).click()
     approved = false
+    await page.keyboard.press('ControlOrMeta+o')
+    const listPicker = page.getByRole('dialog', { name: 'Open repository' })
+    await listPicker
+      .getByRole('button', { name: 'Open merge request in repo', exact: true })
+      .click()
+    const listedMR = listPicker.getByRole('button', { name: /Fixture MR/ })
+    await expect(listedMR).toContainText('!3')
+    await expect(listedMR).toContainText('Reviewer')
+    const filter = listPicker.getByRole('textbox', { name: 'Filter open merge requests' })
+    await filter.fill('no matching title')
+    await expect(listPicker.getByRole('status')).toContainText('No matching merge requests')
+    await filter.fill('!3')
+    await expect(listedMR).toBeVisible()
+    await page.screenshot({ path: testInfo.outputPath('open-merge-requests.png') })
+    // Use saved commits to avoid requiring a Git server in this fixture.
+    mrState = 'merged'
+    await listedMR.click()
+    await expect(listPicker).toBeHidden()
+    await expect(button).toHaveAttribute('aria-busy', 'false')
     mrState = 'merged'
     exists = false
     const historicalSearches = searches
