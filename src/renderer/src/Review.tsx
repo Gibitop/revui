@@ -669,7 +669,21 @@ function ReviewSession({
               settings={settings}
               preferences={preferences}
               filter={filter}
-              setFilter={setFilter}
+              setFilter={(value) => {
+                setFilter(value)
+                if (value !== 'unresolved') return
+                const candidates = navigableThreads.filter((thread) =>
+                  thread.path.toLowerCase().includes(search.toLowerCase()),
+                )
+                const thread =
+                  candidates.find((thread) => thread.path === selected) ?? candidates[0]
+                if (!thread) return
+                setScrollTarget(null)
+                setSelected(thread.path)
+                setSearchHit(null)
+                setThreadFocus(thread.id)
+                setThreadVisit((visit) => visit + 1)
+              }}
               search={search}
               setSearch={setSearch}
               searchRef={searchRef}

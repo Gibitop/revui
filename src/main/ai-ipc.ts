@@ -2,8 +2,17 @@ import { ipcMain, type IpcMainInvokeEvent, type BrowserWindow } from 'electron'
 import { createHash } from 'node:crypto'
 import { readFile, lstat, readlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { OpenCodeHarness } from './opencode'
+import { z } from 'zod'
 import { CodexHarness } from './codex'
-import { defaultAITasks, type AITaskSettings, type AIModel } from '../shared/ai'
+import {
+  defaultAITasks,
+  defaultProviders,
+  type ProviderSettings,
+  type AIProvider,
+  type AITaskSettings,
+  type AIModel,
+} from '../shared/ai'
 import { channels } from '../shared/desktop'
 import { AIService, aiRequestSchema } from './ai'
 import type { ReviewService } from './review'
@@ -41,15 +50,29 @@ export function registerAIIPC(
   language: () => string = () => '',
   mrContext: (snapshot: string) => string = () =>
     'No merge request is associated with this comparison.',
+  providers: () => ProviderSettings = () => defaultProviders,
 ) {
-  ipcMain.handle(channels.aiModels, async (event) => {
+  const factory = (
+    event: ConstructorParameters<typeof CodexHarness>[0],
+    failure: (error: Error) => void,
+    provider: AIProvider = 'codex',
+  ) => {
+    const config = providers()[provider]
+    return provider === 'opencode'
+      ? new OpenCodeHarness(event, failure, config.executable)
+      : new CodexHarness(event, failure, config.executable)
+  }
+  ipcMain.handle(channels.aiModels, async (event, input: unknown) => {
     assertSender(event)
-    const harness = new CodexHarness(
+    const provider = z.enum(['codex', 'opencode']).default('codex').parse(input)
+    const harness = factory(
       () => {},
       () => {},
+      provider,
     )
     try {
       await harness.connect()
+      if (harness instanceof OpenCodeHarness) return await harness.models()
       const models: AIModel[] = []
       let cursor: string | null = null
       do {
@@ -74,11 +97,14 @@ export function registerAIIPC(
     async (id, workspace, permission = 'read-only', background = false) => {
       const snapshot = await reviews.workspaceSnapshot(id)
       let record = workspace ? workspaces.get(workspace) : await workspaces.findMatching(snapshot)
-      if (background) {
+      // Read-only turns inspect pinned Git endpoints; checkout preparation is optional.
+      if (background || permission === 'read-only') {
         if (
           record?.phase === 'ready' &&
+          record.repository === snapshot.repository &&
           (await workspaceMatches(snapshot, record.path)) &&
-          !(await workspaceGit(record.path, ['status', '--porcelain', '--untracked-files=all']))
+          (!background ||
+            !(await workspaceGit(record.path, ['status', '--porcelain', '--untracked-files=all'])))
         )
           return record.path
         return snapshot.repository
@@ -94,15 +120,7 @@ export function registerAIIPC(
         )
       if (!(await workspaceMatches(snapshot, path)))
         throw new Error(
-          'Initialize the reviewed revision with the lightning button before using Codex.',
-        )
-      if (
-        permission === 'read-only' &&
-        snapshot.comparison.target.kind !== 'working' &&
-        (await workspaceGit(path, ['status', '--porcelain', '--untracked-files=all']))
-      )
-        throw new Error(
-          'The review workspace has local changes. Restore its reviewed contents before using Codex.',
+          'Initialize the reviewed revision with the lightning button before using AI.',
         )
       return path
     },
@@ -111,7 +129,7 @@ export function registerAIIPC(
       const current = window()
       if (current && !current.isDestroyed()) current.webContents.send(channels.aiChanged, state)
     },
-    undefined,
+    factory,
     taskSettings,
     language,
     mrContext,

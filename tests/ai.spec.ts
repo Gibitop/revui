@@ -64,22 +64,21 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
       .getByRole('button', { name: 'Open folder…', exact: true })
       .click()
     await expect(page.getByRole('article', { name: 'file.ts', exact: true })).toBeVisible()
-    await expect(readFile(join(root, 'codex-requests.jsonl'), 'utf8')).rejects.toThrow()
+    await expect
+      .poll(async () => readFile(join(root, 'codex-requests.jsonl'), 'utf8').catch(() => ''))
+      .toContain('model/list')
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await page.getByRole('tab', { name: 'AI', exact: true }).click()
+    await page.getByRole('tab', { name: 'AI Scenarios', exact: true }).click()
     for (const [label, model, effort] of [
       ['Chat', 'chat-model', 'low'],
       ['Code review', 'review-model', 'high'],
       ['Review order', 'order-model', 'low'],
     ]) {
-      await expect(
-        page
-          .getByRole('combobox', { name: `${label} model`, exact: true })
-          .locator(`option[value="${model}"]`),
-      ).toHaveCount(1)
-      await page.getByRole('combobox', { name: `${label} model`, exact: true }).selectOption(model)
+      await page.getByRole('combobox', { name: `${label} model`, exact: true }).click()
+      await page.getByRole('option', { name: model, exact: true }).click()
       await expect(page.getByRole('combobox', { name: `${label} reasoning effort` })).toBeEnabled()
-      await page.getByRole('combobox', { name: `${label} reasoning effort` }).selectOption(effort)
+      await page.getByRole('combobox', { name: `${label} reasoning effort` }).click()
+      await page.getByRole('option', { name: effort, exact: true }).click()
       await expect
         .poll(() => page.evaluate(() => window.desktop.getBootstrap()))
         .toMatchObject({
@@ -195,7 +194,7 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
     await page.getByRole('menuitemradio', { name: 'AI review order', exact: true }).click()
     await expect(order.getByRole('heading', { name: '1. Public behavior' })).toBeVisible()
     expect(await readFile(join(root, 'codex-requests.jsonl'), 'utf8')).toBe(orderRequests)
-    await page.getByRole('button', { name: 'Codex review', exact: true }).click()
+    await page.getByRole('button', { name: 'AI review', exact: true }).click()
     let panel = page.getByRole('complementary', { name: 'Codex review panel' })
     await expect(
       panel.getByText('AI works better with an initialized workspace', { exact: true }),
@@ -256,6 +255,7 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
     await expect(
       panel.locator('.prose-review').filter({ hasText: 'the revised change' }),
     ).toBeVisible()
+    await expect(panel.getByRole('button', { name: 'Send', exact: true })).toBeEnabled()
     await panel.getByRole('textbox', { name: 'Message Codex' }).fill('Files')
     await panel.getByRole('textbox', { name: 'Message Codex' }).press('Enter')
     await panel.getByRole('link', { name: 'z.ts', exact: true }).click()
@@ -275,7 +275,7 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
     ])
     await panel.getByRole('textbox', { name: 'Message Codex' }).fill('Approval')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
-    await expect(panel.getByRole('alertdialog', { name: 'Codex approval' })).toHaveCount(0)
+    await expect(panel.getByRole('alertdialog', { name: 'AI approval' })).toHaveCount(0)
     await expect(panel.getByText('Command denied.', { exact: true })).toBeVisible()
     await permissions.selectOption('ask')
     await expect(permissions).toHaveValue('ask')
@@ -285,7 +285,7 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
     await panel.getByRole('textbox', { name: 'Message Codex' }).fill('Approval')
     await expect(panel.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
     await panel.getByRole('textbox', { name: 'Message Codex' }).press('Enter')
-    await expect(panel.getByRole('alertdialog', { name: 'Codex approval' })).toHaveCount(0)
+    await expect(panel.getByRole('alertdialog', { name: 'AI approval' })).toHaveCount(0)
     await panel.getByRole('button', { name: 'Initialize workspace', exact: true }).click()
     await expect(panel.getByRole('button', { name: 'Send', exact: true })).toBeEnabled()
     await expect(
@@ -293,7 +293,7 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
     ).toHaveCount(0)
     await panel.getByRole('textbox', { name: 'Message Codex' }).fill('Approval')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
-    const approval = panel.getByRole('alertdialog', { name: 'Codex approval' })
+    const approval = panel.getByRole('alertdialog', { name: 'AI approval' })
     await expect(approval).toContainText('npm test')
     await approval.getByRole('button', { name: 'Allow', exact: true }).click()
     await expect(panel.getByText('Command allowed.', { exact: true })).toBeVisible()
@@ -382,7 +382,7 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
       .fill('Reviewed and edited finding.')
     await local.getByRole('button', { name: 'Save edit', exact: true }).click()
     await expect(local).toContainText('Reviewed and edited finding.')
-    await local.getByRole('button', { name: 'Attach thread to Codex' }).click()
+    await local.getByRole('button', { name: 'Attach thread to AI' }).click()
     const attachment = panel.getByTestId('chat-attachment')
     await expect(attachment).toContainText('file.ts:1')
     await expect(attachment).toContainText('Reviewed and edited finding.')
@@ -391,7 +391,7 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
     await expect(page.getByRole('article', { name: 'file.ts', exact: true })).toBeInViewport()
     await attachment.getByRole('button', { name: 'Remove attachment' }).click()
     await expect(attachment).toHaveCount(0)
-    await local.getByRole('button', { name: 'Attach thread to Codex' }).click()
+    await local.getByRole('button', { name: 'Attach thread to AI' }).click()
     await panel.getByRole('textbox', { name: 'Message Codex' }).fill('Explain this thread')
     await panel.getByRole('button', { name: 'Send', exact: true }).click()
     await expect(panel.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0)
@@ -465,7 +465,11 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
         .getByRole('heading', { name: '1. Public behavior' }),
     ).toBeVisible()
     await expect(page.getByTestId('ai-order-notification')).toHaveCount(0)
-    expect(await readFile(join(root, 'codex-requests.jsonl'), 'utf8')).toBe(requests)
+    expect(
+      (await readFile(join(root, 'codex-requests.jsonl'), 'utf8'))
+        .split('\n')
+        .filter((line) => line.includes('"method":"turn/start"')),
+    ).toEqual(requests.split('\n').filter((line) => line.includes('"method":"turn/start"')))
     expect(await readFile(join(repository, 'file.ts'), 'utf8')).toBe('export const value = 2\n')
   } finally {
     await application.close()

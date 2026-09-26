@@ -10,6 +10,7 @@ import { CodexHarness, type HarnessEvent, type ReviewHarness } from './codex'
 import {
   defaultAITasks,
   type AIModelSettings,
+  type AITaskSettings,
   type AIState,
   type ChatPermission,
 } from '../shared/ai'
@@ -123,6 +124,7 @@ async function fixture(
   let harness!: FixtureHarness,
     latest!: AIState,
     stamp = 'clean'
+  const providers: (string | undefined)[] = []
   const create = () => {
     const service = new AIService(
       root,
@@ -132,7 +134,10 @@ async function fixture(
       (state) => {
         latest = state
       },
-      (event, failure) => (harness = new FixtureHarness(event, failure)),
+      (event, failure, provider) => {
+        providers.push(provider)
+        return (harness = new FixtureHarness(event, failure))
+      },
       () => taskSettings,
       language,
       mrContext,
@@ -153,6 +158,7 @@ async function fixture(
   return {
     root,
     repository,
+    providers,
     reviews,
     service,
     create,
@@ -568,14 +574,15 @@ it('does not resume legacy sessions that previously received embedded file conte
 })
 
 it('routes task settings to chat, review and hidden order, including settings changes', async () => {
-  const settings = {
-    chat: { model: 'chat-model', effort: 'low' },
-    review: { model: 'review-model', effort: 'high' },
-    order: { model: 'order-model', effort: 'medium' },
+  const settings: AITaskSettings = {
+    chat: { provider: 'opencode', model: 'chat-model', effort: 'low' },
+    review: { provider: 'codex', model: 'review-model', effort: 'high' },
+    order: { provider: 'opencode', model: 'order-model', effort: 'medium' },
   }
   const f = await fixture(settings)
   await f.send('chat')
   expect(f.harness.requests[0].params.selection).toEqual(settings.chat)
+  expect(f.providers.at(-1)).toBe('opencode')
   f.harness.complete('Hello')
   await expect.poll(() => f.latest.running || f.latest.review.running).toBe(false)
   await f.send('review')
@@ -583,6 +590,7 @@ it('routes task settings to chat, review and hidden order, including settings ch
     method: 'thread/start',
     params: { selection: settings.review, background: true },
   })
+  expect(f.providers.at(-1)).toBe('codex')
   f.harness.complete(JSON.stringify(output))
   await expect.poll(() => f.latest.running || f.latest.review.running).toBe(false)
   await f.service.handle({ kind: 'order', snapshot: f.snapshot.id })
@@ -590,6 +598,7 @@ it('routes task settings to chat, review and hidden order, including settings ch
     background: true,
     selection: settings.order,
   })
+  expect(f.providers.at(-1)).toBe('opencode')
   f.harness.complete(
     JSON.stringify({ sections: [{ title: 'Step', rationale: 'Reason', paths: ['file.ts'] }] }),
   )
@@ -1102,4 +1111,72 @@ if ([90,91,92].includes(m.id) && m.result) emit({method:'item/agentMessage/delta
   } finally {
     harness.close()
   }
+})
+
+it('applies chat provider settings on the next turn and preserves history across restart', async () => {
+  const settings = structuredClone(defaultAITasks)
+  settings.chat = { provider: 'opencode', model: 'fixture/model', effort: '' }
+  const f = await fixture(settings)
+  await f.send('chat')
+  expect(f.providers.at(-1)).toBe('opencode')
+  const first = f.latest.record.chatId
+  f.harness.complete('OpenCode answer')
+  await expect.poll(() => f.latest.running).toBe(false)
+  settings.chat = { provider: 'codex', model: 'codex-model', effort: 'high' }
+  await f.send('chat')
+  expect(f.providers.at(-1)).toBe('codex')
+  expect(f.harness.requests[0].method).toBe('thread/start')
+  expect(f.harness.requests[0].params.selection).toEqual(settings.chat)
+  expect(f.harness.requests[1].params.text).toContain('OpenCode answer')
+  f.harness.complete('Continued')
+  await expect.poll(() => f.latest.running).toBe(false)
+  await f.service.handle({ kind: 'new-chat', snapshot: f.snapshot.id })
+  await f.send('chat')
+  expect(f.providers.at(-1)).toBe('codex')
+  f.harness.complete('Codex answer')
+  await expect.poll(() => f.latest.running).toBe(false)
+  await f.service.close()
+  await f.service.flush()
+  const reopened = f.create()
+  const selected = await reopened.handle({
+    kind: 'select-chat',
+    snapshot: f.snapshot.id,
+    id: first,
+  })
+  expect(selected.record.provider).toBe('codex')
+  expect(
+    selected.record.messages
+      .filter((message) => message.role === 'assistant')
+      .map(({ text, provider, model }) => ({ text, provider, model })),
+  ).toEqual([
+    { text: 'OpenCode answer', provider: 'opencode', model: 'fixture/model' },
+    { text: 'Continued', provider: 'codex', model: 'codex-model' },
+  ])
+  settings.chat = { provider: 'opencode', model: 'openrouter/anthropic/opus', effort: 'high' }
+  await reopened.handle({
+    kind: 'send',
+    mode: 'chat',
+    snapshot: f.snapshot.id,
+    workspace: null,
+    text: 'Resume after restart',
+    attachments: [],
+  })
+  expect(f.providers.at(-1)).toBe('opencode')
+  expect(f.harness.requests[0].method).toBe('thread/start')
+  expect(f.harness.requests[0].params.selection).toEqual(settings.chat)
+  expect(f.harness.requests[1].params.text).toContain('OpenCode answer')
+  expect(f.harness.requests[1].params.text).toContain('Continued')
+  expect(f.harness.requests[1].params.text).toContain('\"provider\":\"codex\"')
+  expect(f.harness.requests[1].params.text).toContain('\"provider\":\"opencode\"')
+})
+
+it('uses updated provider settings for an already-open empty chat', async () => {
+  const settings = structuredClone(defaultAITasks)
+  const f = await fixture(settings)
+  await f.service.handle({ kind: 'get', snapshot: f.snapshot.id })
+  settings.chat = { provider: 'opencode', model: 'openrouter/anthropic/opus', effort: '' }
+  await f.send('chat')
+  expect(f.providers.at(-1)).toBe('opencode')
+  expect(f.harness.requests[0].method).toBe('thread/start')
+  expect(f.harness.requests[0].params.selection).toEqual(settings.chat)
 })

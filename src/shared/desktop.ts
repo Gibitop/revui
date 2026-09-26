@@ -1,4 +1,11 @@
-import type { AIModel, AITaskSettings, AIRequest, AIState } from './ai'
+import type {
+  AIProvider,
+  ProviderSettings,
+  AIModel,
+  AITaskSettings,
+  AIRequest,
+  AIState,
+} from './ai'
 import type { GitLabRequest, GitLabResult } from './gitlab'
 import type { Workspace, WorkspaceListing, ToolCommands, IDE } from './workspace'
 import type {
@@ -25,6 +32,7 @@ export type Settings = {
   fileView: 'tree' | 'flat'
   aiPanelOpen: boolean
   aiPanelWidth: number
+  aiProviders: ProviderSettings
   aiTasks: AITaskSettings
   aiLanguage: string
   recentRepositories: string[]
@@ -40,7 +48,7 @@ export type Bootstrap = {
 }
 
 export type DesktopAPI = {
-  aiModels: () => Promise<AIModel[]>
+  aiModels: (provider?: AIProvider) => Promise<AIModel[]>
   ai: (request: AIRequest) => Promise<AIState>
   onAIChanged: (listener: (state: AIState) => void) => () => void
   gitlab: (request: GitLabRequest) => Promise<GitLabResult>

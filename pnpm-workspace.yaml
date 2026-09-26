@@ -1,5 +1,9 @@
 allowBuilds:
   electron: true
   esbuild: true
+  msgpackr-extract: false
 minimumReleaseAgeExclude:
   - electron@44.4.4
+  - '@opencode/client@2.0.18'
+  - '@opencode/protocol@2.0.18'
+  - '@opencode/schema@2.0.18'

@@ -27,7 +27,7 @@ import { Button } from '@/components/ui/button'
 import { Thread } from './Thread'
 import { gitStatuses } from './ReviewSidebar'
 const codeCSS =
-  ':host { --diffs-font-family: "Geist Mono Variable", monospace; --diffs-font-size: 13px; --diffs-line-height: 20px; }'
+  ':host { --diffs-font-family: "Geist Mono Variable", monospace; --diffs-font-size: 13px; --diffs-line-height: 20px; } [data-thread-range]:not([data-selected-line]) { background-color: color-mix(in srgb, #3b82f6 14%, transparent); box-shadow: inset 2px 0 #3b82f6; }'
 
 export const ReviewFileCard = memo(function ReviewFileCard({
   snapshot,
@@ -190,10 +190,16 @@ export const ReviewFileCard = memo(function ReviewFileCard({
     remoteFocus.head_sha === gitlab.review.pinned.head_sha &&
     remoteFocus.base_sha === gitlab.review.pinned.base_sha &&
     remoteFocus.start_sha === gitlab.review.pinned.start_sha
-  const anchor =
-    remoteFocus?.position_type === 'text' &&
-    remoteCurrent &&
-    Number.isInteger(remoteFocus.new_line ?? remoteFocus.old_line)
+  const anchor = range
+    ? {
+        line: Math.max(range.start, range.end),
+        start: Math.min(range.start, range.end),
+        side: range.side ?? ('additions' as const),
+        key: `composer:${range.side}:${range.start}:${range.end}`,
+      }
+    : remoteFocus?.position_type === 'text' &&
+        remoteCurrent &&
+        Number.isInteger(remoteFocus.new_line ?? remoteFocus.old_line)
       ? {
           line: remoteFocus.new_line ?? remoteFocus.old_line!,
           side: remoteFocus.new_line ? ('additions' as const) : ('deletions' as const),
@@ -203,7 +209,8 @@ export const ReviewFileCard = memo(function ReviewFileCard({
         ? { line: searchHit.line, side: 'additions' as const, key: `search:${searchHit.key}` }
         : focusedThread && focusedThread.fingerprint === content.data?.fingerprint
           ? {
-              line: focusedThread.start,
+              line: focusedThread.end,
+              start: focusedThread.start,
               side: focusedThread.side,
               key: `thread:${focusedThread.id}:${threadVisit}`,
             }
@@ -227,51 +234,6 @@ export const ReviewFileCard = memo(function ReviewFileCard({
     })
     return () => cancelAnimationFrame(frame)
   }, [threadFocus, threadVisit, remoteFocus, remoteCurrent, collapsed])
-  const options = {
-    theme: { dark: 'pierre-dark', light: 'pierre-light' } as const,
-    themeType: theme,
-    diffStyle:
-      settings.diffLayout === 'auto' ? (narrow ? 'unified' : 'split') : settings.diffLayout,
-    disableFileHeader: true,
-    enableLineSelection: true,
-    enableGutterUtility: true,
-    onGutterUtilityClick: (selection: SelectedLineRange) => {
-      setDestination(gitlab?.review?.aligned ? 'gitlab' : 'local')
-      setRange(selection)
-    },
-    preferredHighlighter: 'shiki-js' as const,
-    overflow: settings.wrapLines ? ('wrap' as const) : ('scroll' as const),
-    onLineSelectionStart: setSelectingRange,
-    onLineSelectionChange: setSelectingRange,
-    onLineSelectionEnd: (selection: SelectedLineRange | null) => {
-      setSelectingRange(null)
-      setDestination(gitlab?.review?.aligned ? 'gitlab' : 'local')
-      setRange(selection)
-    },
-    unsafeCSS: codeCSS,
-    expandUnchanged: !!anchor,
-    onPostRender: (node: HTMLElement, instance: object) => {
-      if (!anchor || scrolledHit.current === anchor.key) return
-      if (!(instance instanceof VirtualizedFileDiff) && !(instance instanceof VirtualizedFile))
-        return
-      const position =
-        instance instanceof VirtualizedFileDiff
-          ? instance.getLinePosition(anchor.line, anchor.side)
-          : instance.getLinePosition(anchor.line)
-      if (!position) return
-      scrolledHit.current = anchor.key
-      requestAnimationFrame(() => {
-        const scroll = root.current?.closest('[data-testid="diff-scroll"]')?.firstElementChild
-        if (scroll)
-          scroll.scrollTop +=
-            node.getBoundingClientRect().top -
-            scroll.getBoundingClientRect().top +
-            position.top -
-            (root.current?.querySelector('header')?.getBoundingClientRect().height ?? 40) -
-            8
-      })
-    },
-  }
   const annotations: DiffLineAnnotation<LocalThread | Discussion | 'composer'>[] =
     currentThreads.map((thread) => ({
       side: thread.side,
@@ -303,6 +265,106 @@ export const ReviewFileCard = memo(function ReviewFileCard({
         lineNumber: position.new_line ?? position.old_line!,
         metadata: discussion,
       })
+  }
+  const options = {
+    theme: { dark: 'pierre-dark', light: 'pierre-light' } as const,
+    themeType: theme,
+    diffStyle:
+      settings.diffLayout === 'auto' ? (narrow ? 'unified' : 'split') : settings.diffLayout,
+    disableFileHeader: true,
+    enableLineSelection: true,
+    enableGutterUtility: true,
+    onGutterUtilityClick: (selection: SelectedLineRange) => {
+      setDestination(gitlab?.review?.aligned ? 'gitlab' : 'local')
+      setRange(selection)
+    },
+    preferredHighlighter: 'shiki-js' as const,
+    overflow: settings.wrapLines ? ('wrap' as const) : ('scroll' as const),
+    onLineSelectionStart: setSelectingRange,
+    onLineSelectionChange: setSelectingRange,
+    onLineSelectionEnd: (selection: SelectedLineRange | null) => {
+      setSelectingRange(null)
+      setDestination(gitlab?.review?.aligned ? 'gitlab' : 'local')
+      setRange(selection)
+    },
+    unsafeCSS: codeCSS,
+    expandUnchanged:
+      !!anchor ||
+      annotations.some(({ metadata }) =>
+        metadata === 'composer'
+          ? true
+          : 'notes' in metadata
+            ? !metadata.notes[0]?.resolved
+            : !metadata.resolved,
+      ),
+    onPostRender: (node: HTMLElement, instance: object) => {
+      const threadRanges = annotations.flatMap(({ metadata, side, lineNumber }) => {
+        if (metadata === 'composer') return []
+        if ('notes' in metadata) {
+          if (metadata.notes[0]?.resolved) return []
+          const start = metadata.notes[0]?.position?.line_range?.start
+          return [
+            {
+              start: (side === 'deletions' ? start?.old_line : start?.new_line) ?? lineNumber,
+              end: lineNumber,
+              side,
+            },
+          ]
+        }
+        return metadata.resolved ? [] : [{ start: metadata.start, end: metadata.end, side }]
+      })
+      const split = node.shadowRoot?.querySelector('[data-diff-type="split"]') != null
+      const ranges = threadRanges.flatMap((range) => {
+        if (!(instance instanceof VirtualizedFileDiff)) return [range]
+        const start = instance.getLineIndex(range.start, range.side)
+        const end = instance.getLineIndex(range.end, range.side)
+        return start && end
+          ? [{ ...range, start: start[split ? 1 : 0], end: end[split ? 1 : 0] }]
+          : []
+      })
+      for (const line of node.shadowRoot?.querySelectorAll<HTMLElement>(
+        '[data-line-index][data-line], [data-line-index][data-column-number]',
+      ) ?? []) {
+        const index =
+          instance instanceof VirtualizedFileDiff
+            ? Number(line.dataset.lineIndex?.split(',')[split ? 1 : 0])
+            : Number(line.dataset.line ?? line.dataset.columnNumber)
+        const side = split
+          ? line.closest('[data-additions]')
+            ? 'additions'
+            : 'deletions'
+          : line.dataset.lineType === 'change-addition'
+            ? 'additions'
+            : line.dataset.lineType === 'change-deletion'
+              ? 'deletions'
+              : undefined
+        line.toggleAttribute(
+          'data-thread-range',
+          ranges.some(
+            (range) => (!side || side === range.side) && index >= range.start && index <= range.end,
+          ),
+        )
+      }
+      if (!anchor || scrolledHit.current === anchor.key) return
+      if (!(instance instanceof VirtualizedFileDiff) && !(instance instanceof VirtualizedFile))
+        return
+      const position =
+        instance instanceof VirtualizedFileDiff
+          ? instance.getLinePosition(anchor.line, anchor.side)
+          : instance.getLinePosition(anchor.line)
+      if (!position) return
+      scrolledHit.current = anchor.key
+      requestAnimationFrame(() => {
+        const scroll = root.current?.closest('[data-testid="diff-scroll"]')?.firstElementChild
+        if (scroll)
+          scroll.scrollTop +=
+            node.getBoundingClientRect().top -
+            scroll.getBoundingClientRect().top +
+            position.top -
+            (root.current?.querySelector('header')?.getBoundingClientRect().height ?? 40) -
+            8
+      })
+    },
   }
   const renderAnnotation = ({
     metadata: thread,
@@ -423,7 +485,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   const selectedLines =
     selectingRange ??
     range ??
-    (anchor ? { start: anchor.line, end: anchor.line, side: anchor.side } : null)
+    (anchor ? { start: anchor.start ?? anchor.line, end: anchor.line, side: anchor.side } : null)
   return (
     <article
       ref={root}

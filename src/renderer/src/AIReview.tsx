@@ -26,9 +26,12 @@ import {
 } from 'lucide-react'
 import Markdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { AIIcon } from './AISelect'
 import { chatFileReferences } from './chatFiles'
 import {
   chatPermissions,
+  aiProviders,
+  type AIModel,
   type ChatPermission,
   type AIAttachment,
   type AIRequest,
@@ -292,7 +295,7 @@ export function AIReviewButton({ open, onClick }: { open: boolean; onClick: () =
     <Button
       variant="ghost"
       size="icon"
-      aria-label="Codex review"
+      aria-label="AI review"
       aria-pressed={open}
       onClick={onClick}
     >
@@ -401,6 +404,7 @@ function AIReviewPanel({
   onClose: () => void
 }) {
   const ai = useAIReview()!
+  const queryClient = useQueryClient()
   const chatId = ai.state?.record.chatId ?? ''
   const [edits, setEdits] = useState<Record<string, { id: string; text: string } | undefined>>({})
   const edit = edits[chatId]
@@ -589,14 +593,17 @@ function AIReviewPanel({
       <aside
         ref={panelRef}
         style={{ width }}
-        aria-label="Codex review panel"
+        aria-label={`${state?.record.provider === 'opencode' ? 'OpenCode' : 'Codex'} review panel`}
         className="flex h-full min-w-[380px] max-w-[50vw] shrink-0 flex-col border-l bg-surface"
       >
-        <div className="flex items-center gap-2 border-b p-2">
-          <strong>Codex</strong>
+        <div className="flex items-center gap-2 border-b p-2 pl-4">
+          <div className="flex h-8 items-center gap-2 leading-none">
+            <Bot className="size-4 -translate-y-px shrink-0" aria-hidden="true" />
+            <strong>AI chat</strong>
+          </div>
           <Button
             className="ml-1"
-            variant="ghost"
+            variant="secondary"
             disabled={!state || state.review.running}
             aria-busy={state?.review.running ?? false}
             onClick={() => void ai.run({ kind: 'review', snapshot })}
@@ -620,7 +627,7 @@ function AIReviewPanel({
             </Button>
           )}
           <span className="flex-1" />
-          <Button variant="ghost" size="icon" aria-label="Close Codex" onClick={onClose}>
+          <Button variant="ghost" size="icon" aria-label="Close AI panel" onClick={onClose}>
             <X className="size-4" />
           </Button>
         </div>
@@ -730,7 +737,7 @@ function AIReviewPanel({
           <div
             key={approval.id}
             role="alertdialog"
-            aria-label="Codex approval"
+            aria-label="AI approval"
             className="space-y-2 border-b p-3"
           >
             <p className="font-medium">Approval needed</p>
@@ -853,8 +860,32 @@ function AIReviewPanel({
                 >
                   {message.role === 'assistant' && (
                     <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                      <Bot className="size-3.5" />
-                      Codex
+                      {message.provider ? (
+                        <>
+                          <AIIcon provider={message.provider} className="size-3.5" />
+                          <span>{aiProviders[message.provider]}</span>
+                          <AIIcon
+                            provider={message.provider}
+                            model={message.model || undefined}
+                            className="size-3.5"
+                          />
+                          <span>
+                            {message.model === undefined
+                              ? 'Unknown model'
+                              : message.model
+                                ? (queryClient
+                                    .getQueriesData<AIModel[]>({
+                                      queryKey: ['ai-models', message.provider],
+                                    })
+                                    .flatMap(([, models]) => models ?? [])
+                                    .find((model) => model.model === message.model)?.displayName ??
+                                  message.model)
+                                : `${aiProviders[message.provider]} default`}
+                          </span>
+                        </>
+                      ) : (
+                        <span>Assistant</span>
+                      )}
                     </div>
                   )}
                   <div
@@ -981,7 +1012,7 @@ function AIReviewPanel({
             {busy && (
               <div role="status" className="flex items-center gap-2 text-xs text-muted-foreground">
                 <LoaderCircle className="size-3.5 motion-safe:animate-spin" />
-                Codex is working…
+                {state?.record.provider === 'opencode' ? 'OpenCode' : 'Codex'} is working…
               </div>
             )}
           </div>
@@ -998,7 +1029,7 @@ function AIReviewPanel({
               <p className="text-muted-foreground">
                 {state?.record.permission && state.record.permission !== 'read-only'
                   ? 'A matching workspace is required for edits'
-                  : 'AI works better with an initialized workspace'}
+                  : 'AI chats work better in an initialized workspace'}
               </p>
               <Button
                 variant="outline"
@@ -1026,7 +1057,7 @@ function AIReviewPanel({
           <Textarea
             ref={composerRef}
             className="min-h-24 max-h-60 resize-y rounded-lg"
-            aria-label="Message Codex"
+            aria-label={`Message ${state?.record.provider === 'opencode' ? 'OpenCode' : 'Codex'}`}
             placeholder="Ask about this review…"
             value={text}
             onChange={(event) => setText(event.target.value)}
@@ -1048,13 +1079,15 @@ function AIReviewPanel({
               className="mr-auto min-w-0 max-w-48 rounded-md border bg-background px-2 py-1.5 text-xs"
               value={state?.record.permission ?? 'read-only'}
               title={
-                state?.record.permission === 'full'
-                  ? 'Unrestricted file and command access, without approval prompts.'
-                  : state?.record.permission === 'ask'
-                    ? 'Can edit the review workspace; asks before crossing sandbox boundaries.'
-                    : state?.record.permission === 'auto'
-                      ? 'Can edit the review workspace; Codex reviews eligible approval requests.'
-                      : 'Read-only sandbox, without approval prompts.'
+                state?.record.provider === 'opencode'
+                  ? 'Read only blocks shell/edit tools and uses a read-only Git tool. Ask for approval prompts before side effects. Full access permits all tools. OpenCode has no OS sandbox.'
+                  : state?.record.permission === 'full'
+                    ? 'Unrestricted file and command access, without approval prompts.'
+                    : state?.record.permission === 'ask'
+                      ? 'Can edit the review workspace; asks before crossing sandbox boundaries.'
+                      : state?.record.permission === 'auto'
+                        ? 'Can edit the review workspace; Codex reviews eligible approval requests.'
+                        : 'Read-only sandbox, without approval prompts.'
               }
               disabled={!state || busy || changingChat || changingPermission}
               onChange={(event) => {
@@ -1070,7 +1103,11 @@ function AIReviewPanel({
               }}
             >
               {Object.entries(chatPermissions).map(([value, label]) => (
-                <option key={value} value={value}>
+                <option
+                  key={value}
+                  value={value}
+                  disabled={value === 'auto' && state?.record.provider === 'opencode'}
+                >
                   {label}
                 </option>
               ))}

@@ -109,8 +109,8 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     await expect(page.getByLabel('Comment on src/long.ts')).toHaveValue(
       '```suggestion:-2+0\n' + lines.slice(598, 601).join('\n') + '\n```',
     )
-    await composer.getByRole('button', { name: 'Increase start line' }).click()
-    await composer.getByRole('button', { name: 'Decrease end line' }).click()
+    for (let i = 0; i < 5; i++)
+      await composer.getByRole('button', { name: 'Increase end line' }).click()
     await page.getByLabel('Comment on src/long.ts').fill('Review this distant line')
     await page.getByRole('button', { name: 'Post now', exact: true }).click()
     await expect(file.getByText('Review this distant line')).toBeVisible()
@@ -118,6 +118,9 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     await expect(stamp).toContainText(/just now|ago/)
     await stamp.hover()
     await expect(page.getByRole('tooltip')).toContainText(String(new Date().getFullYear()))
+    // Clearing navigation focus must not hide open threads in unchanged context.
+    await page.getByRole('treeitem', { name: /long.ts/ }).click()
+    await expect(file.getByText(/\d+ unmodified lines/)).toHaveCount(0)
     for (const shortcut of [
       'Control+ArrowRight',
       'Meta+ArrowRight',
@@ -138,8 +141,14 @@ test('long-file thread navigation stays inside the review pane; native copy and 
       await expect(file.getByText('Review this distant line')).toBeVisible()
       await expect(page.getByRole('button', { name: 'All changes', exact: true })).toHaveCount(0)
     }
+    await page.locator('[data-testid="diff-scroll"] > div').evaluate((node) => {
+      node.scrollTop = 0
+    })
     await page.getByRole('button', { name: 'Filter files', exact: true }).click()
     await page.getByRole('menuitemradio', { name: 'Unresolved threads', exact: true }).click()
+    await expect(file.getByText('Review this distant line')).toBeInViewport()
+    await expect(file.locator('[data-line="599"][data-selected-line]').last()).toBeVisible()
+    await expect(file.locator('[data-line="606"][data-selected-line]').last()).toBeVisible()
     for (const action of ['select', 'next', 'previous', 'keyboard']) {
       await page.locator('[data-testid="diff-scroll"] > div').evaluate((node) => {
         node.scrollTop = 0
@@ -165,6 +174,31 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     }
     await page.getByRole('button', { name: 'Filter files', exact: true }).click()
     await page.getByRole('menuitemradio', { name: 'Changed files', exact: true }).click()
+    const threadScroll = await page
+      .locator('[data-testid="diff-scroll"] > div')
+      .evaluate((node) => node.scrollTop)
+    await page.getByRole('treeitem', { name: /long.ts/ }).click()
+    await page.locator('[data-testid="diff-scroll"] > div').evaluate((node, top) => {
+      node.scrollTop = top
+    }, threadScroll)
+    await expect(file.locator('[data-line="599"][data-thread-range]').last()).toBeVisible()
+    await expect(file.locator('[data-line="606"][data-thread-range]').last()).toBeVisible()
+    await expect(file.locator('[data-line="598"][data-thread-range]')).toHaveCount(0)
+    await expect(file.locator('[data-selected-line]')).toHaveCount(0)
+    await application.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0].setSize(1400, 800),
+    )
+    await expect(file.locator('[data-diff-type="split"]')).toBeVisible()
+    await page.locator('[data-testid="diff-scroll"] > div').evaluate((node, top) => {
+      node.scrollTop = top
+    }, threadScroll)
+    await expect(
+      file.locator('[data-additions] [data-line="599"][data-thread-range]'),
+    ).toBeVisible()
+    await expect(
+      file.locator('[data-additions] [data-line="606"][data-thread-range]'),
+    ).toBeVisible()
+    await expect(file.locator('[data-deletions] [data-thread-range]')).toHaveCount(0)
     await file.getByRole('button', { name: 'Delete comment' }).click()
     await page
       .getByRole('dialog', { name: 'Delete comment?' })

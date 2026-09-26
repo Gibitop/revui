@@ -197,11 +197,6 @@ export function GitLabSettings() {
           .finally(() => setBusy(null))
       }}
     >
-      <header className="shrink-0 pt-6 pr-14 pl-6">
-        <h2 className="font-semibold">GitLab</h2>
-        <p className="mt-1 text-muted-foreground">Connect your account to review merge requests.</p>
-      </header>
-
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6">
         <div className="mt-6 flex items-center gap-3 rounded-md border bg-muted/30 p-3">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-background">

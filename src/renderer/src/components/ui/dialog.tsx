@@ -4,6 +4,7 @@ import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export const Dialog = DialogPrimitive.Root
+export const DialogClose = DialogPrimitive.Close
 export const DialogTrigger = DialogPrimitive.Trigger
 export const DialogTitle = DialogPrimitive.Title
 export const DialogDescription = DialogPrimitive.Description
@@ -12,8 +13,12 @@ export function DialogContent({
   className,
   children,
   closeLabel = 'Close settings',
+  showCloseButton = true,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & { closeLabel?: string }) {
+}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+  closeLabel?: string
+  showCloseButton?: boolean
+}) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/35" />
@@ -25,10 +30,12 @@ export function DialogContent({
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="absolute top-5 right-5 rounded-sm p-1 text-muted-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
-          <X className="size-4" />
-          <span className="sr-only">{closeLabel}</span>
-        </DialogPrimitive.Close>
+        {showCloseButton && (
+          <DialogPrimitive.Close className="absolute top-5 right-5 rounded-sm p-1 text-muted-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring">
+            <X className="size-4" />
+            <span className="sr-only">{closeLabel}</span>
+          </DialogPrimitive.Close>
+        )}
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   )

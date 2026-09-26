@@ -8,7 +8,14 @@ export type ChatPermission = keyof typeof chatPermissions
 import type { LocalThread } from './review'
 
 export const aiTasks = { chat: 'Chat', review: 'Code review', order: 'Review order' } as const
-export type AIModelSettings = { model: string; effort: string }
+export const aiProviders = { codex: 'Codex', opencode: 'OpenCode' } as const
+export type AIProvider = keyof typeof aiProviders
+export type ProviderSettings = Record<AIProvider, { executable: string }>
+export const defaultProviders: ProviderSettings = {
+  codex: { executable: 'codex' },
+  opencode: { executable: 'opencode' },
+}
+export type AIModelSettings = { provider?: AIProvider; model: string; effort: string }
 export type AITaskSettings = Record<keyof typeof aiTasks, AIModelSettings>
 export const defaultAITasks: AITaskSettings = {
   chat: { model: '', effort: '' },
@@ -39,6 +46,8 @@ export type AIFinding = {
   thread?: string
 }
 export type AIMessage = {
+  model?: string
+  provider?: AIProvider
   id: string
   role: 'user' | 'assistant' | 'tool'
   text: string
@@ -47,6 +56,7 @@ export type AIMessage = {
   attachments?: AIAttachment[]
 }
 export type AIChat = {
+  provider?: AIProvider
   permission: ChatPermission
   id: string
   created: number
@@ -56,6 +66,7 @@ export type AIChat = {
   stale: boolean
 }
 export type AIRecord = {
+  provider?: AIProvider
   permission: ChatPermission
   chatId: string
   chatCreated: number
@@ -80,7 +91,7 @@ export type AIState = {
   error: string | null
   approvals: { id: string; command: string; cwd: string; reason: string }[]
   capabilities: {
-    provider: 'Codex'
+    provider: 'Codex' | 'OpenCode'
     version: string
     commands: boolean
     resume: boolean

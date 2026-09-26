@@ -172,12 +172,14 @@ it('migrates old settings and persists independent AI task choices', async () =>
   directories.push(directory)
   const store = new SettingsStore(directory)
   const legacy: any = store.get()
+  delete legacy.aiProviders
   delete legacy.aiTasks
   delete legacy.aiLanguage
   delete legacy.fileView
   await writeFile(join(directory, 'settings.json'), JSON.stringify(legacy))
   await store.load()
   expect(store.warning).toBeNull()
+  expect(store.get().aiProviders.opencode).toEqual({ executable: 'opencode' })
   expect(store.get().aiLanguage).toBe('')
   expect(store.get().fileView).toBe('tree')
   expect(store.get().aiTasks.chat).toEqual({ model: '', effort: '' })
@@ -194,4 +196,28 @@ it('migrates old settings and persists independent AI task choices', async () =>
       aiTasks: { ...tasks, chat: { model: 'x', effort: 'not valid' } },
     }).success,
   ).toBe(false)
+})
+
+it('retires provider disable flags while retaining configured binaries', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'revui-provider-settings-'))
+  directories.push(directory)
+  const store = new SettingsStore(directory)
+  await writeFile(
+    join(directory, 'settings.json'),
+    JSON.stringify({
+      ...store.get(),
+      aiProviders: {
+        codex: { enabled: false, executable: '/custom/codex' },
+        opencode: { enabled: false, executable: '/custom/opencode' },
+      },
+    }),
+  )
+  await store.load()
+  expect(store.warning).toBeNull()
+  expect(store.get().aiProviders).toEqual({
+    codex: { executable: '/custom/codex' },
+    opencode: { executable: '/custom/opencode' },
+  })
+  await store.updatePreferences({ theme: 'dark' })
+  expect(await readFile(join(directory, 'settings.json'), 'utf8')).not.toContain('"enabled"')
 })

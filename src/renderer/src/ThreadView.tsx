@@ -182,8 +182,8 @@ export function ThreadView({
                     type="button"
                     variant="ghost"
                     className="size-7 p-0"
-                    aria-label="Attach thread to Codex"
-                    title="Attach thread to Codex"
+                    aria-label="Attach thread to AI"
+                    title="Attach thread to AI"
                     onClick={onAttach}
                   >
                     <Bot className="size-3.5" />

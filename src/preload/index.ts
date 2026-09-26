@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { channels, type DesktopAPI } from '../shared/desktop'
 
 const desktop: DesktopAPI = {
-  aiModels: () => ipcRenderer.invoke(channels.aiModels),
+  aiModels: (provider) => ipcRenderer.invoke(channels.aiModels, provider),
   ai: (request) => ipcRenderer.invoke(channels.ai, request),
   onAIChanged: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, state: Parameters<typeof listener>[0]) =>

@@ -298,6 +298,7 @@ if (!app.requestSingleInstanceLock()) {
         () => settings.get().aiTasks,
         () => settings.get().aiLanguage,
         (snapshot) => gitlab.aiContext(snapshot),
+        () => settings.get().aiProviders,
       )
       app.on('before-quit', () => {
         ai.close()

@@ -67,11 +67,7 @@ export function WorktreeSettings({ platform }: { platform: string }) {
   const visible = records.filter((record) => record.phase !== 'restored')
   return (
     <>
-      <h2 className="pr-10 font-semibold">Worktrees</h2>
-      <p className="mt-1 text-muted-foreground">
-        Manage worktrees and restore in-place checkouts across all repositories.
-      </p>
-      <div className="mt-5 space-y-4">
+      <div className="space-y-4">
         {visible.length === 0 && (
           <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground">
             <FolderGit2 className="mx-auto mb-3 size-6" />

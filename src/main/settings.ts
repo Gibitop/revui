@@ -1,4 +1,4 @@
-import { defaultAITasks } from '../shared/ai'
+import { defaultAITasks, defaultProviders } from '../shared/ai'
 import { ideChoices } from '../shared/workspace'
 import { commandsSchema } from './workspace'
 import { mkdir, readFile, rename, writeFile, rm } from 'node:fs/promises'
@@ -9,6 +9,7 @@ import type { PreferencesPatch, Settings } from '../shared/desktop'
 
 const modelSettingsSchema = z
   .object({
+    provider: z.enum(['codex', 'opencode']).optional(),
     model: z
       .string()
       .trim()
@@ -17,7 +18,7 @@ const modelSettingsSchema = z
     effort: z
       .string()
       .max(40)
-      .regex(/^[a-z]*$/),
+      .regex(/^[a-zA-Z0-9_-]*$/),
   })
   .strict()
 const aiTasksSchema = z
@@ -41,6 +42,30 @@ const preferencesSchema = z
     fileView: z.enum(['tree', 'flat']),
     sidebarCollapsed: z.boolean(),
     sidebarWidth: z.number().int().min(190).max(600),
+    aiProviders: z
+      .object({
+        codex: z
+          .object({
+            executable: z
+              .string()
+              .trim()
+              .min(1)
+              .max(4096)
+              .refine((value) => !/[\r\n\0]/.test(value)),
+          })
+          .strict(),
+        opencode: z
+          .object({
+            executable: z
+              .string()
+              .trim()
+              .min(1)
+              .max(4096)
+              .refine((value) => !/[\r\n\0]/.test(value)),
+          })
+          .strict(),
+      })
+      .strict(),
     aiTasks: aiTasksSchema,
     aiLanguage: z
       .string()
@@ -68,6 +93,7 @@ const settingsSchema = preferencesSchema
       .max(800)
       .default(380)
       .transform((width) => Math.max(380, width)),
+    aiProviders: preferencesSchema.shape.aiProviders.default(defaultProviders),
     aiTasks: aiTasksSchema.default(defaultAITasks),
     aiLanguage: preferencesSchema.shape.aiLanguage.default(''),
     version: z.literal(1),
@@ -80,6 +106,7 @@ export class SettingsStore {
     preferredIDE: 'vscode',
     workspaceCommands: { script: '' },
     repositoryCommands: {},
+    aiProviders: structuredClone(defaultProviders),
     aiTasks: structuredClone(defaultAITasks),
     aiLanguage: '',
     version: 1,
@@ -120,6 +147,11 @@ export class SettingsStore {
         delete (parsed as Record<string, unknown>).terminalPanelOpen
         delete (parsed as Record<string, unknown>).terminalHeight
         const value = parsed as Record<string, unknown>
+        if (value.aiProviders && typeof value.aiProviders === 'object') {
+          for (const provider of Object.values(value.aiProviders)) {
+            if (provider && typeof provider === 'object') delete provider.enabled
+          }
+        }
         if (value.preferredIDE === 'custom') value.preferredIDE = 'vscode'
         const overrides = value.repositoryCommands
         const commands = [
