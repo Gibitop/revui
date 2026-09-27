@@ -231,7 +231,11 @@ export function SettingsDialog({
                 keepMounted
                 className="p-6 outline-none data-hidden:hidden"
               >
-                <WorkspaceSettings settings={settings} repository={repository} />
+                <WorkspaceSettings
+                  key={repository?.path ?? ''}
+                  settings={settings}
+                  repository={repository}
+                />
               </Tabs.Panel>
               <Tabs.Panel value="worktrees" className="p-6 outline-none">
                 <WorktreeSettings platform={platform} />
@@ -274,7 +278,9 @@ function WorkspaceSettings({
   settings: Settings
   repository: Repository | null
 }) {
-  const [scope, setScope] = useState('global')
+  const [scope, setScope] = useState(() =>
+    repository && settings.repositoryCommands[repository.path] ? 'repository' : 'global',
+  )
   return (
     <div>
       {repository ? (
