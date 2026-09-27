@@ -100,7 +100,7 @@ function ReviewSession({
   const [initialComparison] = useState(initial)
   const [controls, setControls] = useState({ comparison: initial, version: 0 })
   const [searchHit, setSearchHit] = useState<
-    (ContentMatch & { key: number; codeNavigation?: boolean }) | null
+    (ContentMatch & { key: number; codeNavigation?: boolean; fileOnly?: boolean }) | null
   >(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const contentSearchRef = useRef<HTMLInputElement>(null)
@@ -512,6 +512,7 @@ function ReviewSession({
         path: location.path,
         line: location.line,
         codeNavigation: true,
+        fileOnly: location.fileOnly,
         text: '',
         ranges: [],
         key: Date.now(),

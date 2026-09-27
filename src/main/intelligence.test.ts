@@ -76,9 +76,8 @@ it('provides real TSX/JS hovers, alias/import definitions and references without
   const definition = await service.query({ ...request, kind: 'definition' })
   expect(definition.locations).toEqual([{ path: 'src/model.ts', line: 1, character: 13 }])
   expect(
-    (await service.query({ ...request, kind: 'definition', line: 0, character: 27 })).locations[0]
-      .path,
-  ).toBe('src/model.ts')
+    (await service.query({ ...request, kind: 'definition', line: 0, character: 27 })).locations,
+  ).toEqual([{ path: 'src/model.ts', line: 1, character: 0, fileOnly: true }])
   const references = await service.query({ ...request, kind: 'references' })
   expect(references.locations).toEqual(
     expect.arrayContaining([

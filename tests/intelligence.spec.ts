@@ -322,6 +322,8 @@ test('type hovers and modifier navigation work in split, unified and unchanged f
       await page.keyboard.up(modifier)
       const model = page.getByRole('article', { name: 'model.ts', exact: true })
       await expect(model).toBeVisible()
+      await expect(model.locator('[data-line]').first()).toBeVisible()
+      await expect(model.locator('[data-selected-line]')).toHaveCount(0)
       await expect(main).toBeHidden()
       expect(
         await page.getByTestId('diff-scroll').evaluate((pane) => {
@@ -343,6 +345,8 @@ test('type hovers and modifier navigation work in split, unified and unchanged f
         ).toBe(true)
         await page.keyboard.press(`${key}+]`)
         await expect(model).toBeVisible()
+        await expect(model.locator('[data-line]').first()).toBeVisible()
+        await expect(model.locator('[data-selected-line]')).toHaveCount(0)
         // Forward at the end of the history is a no-op.
         await page.keyboard.press(`${key}+]`)
         await expect(model).toBeVisible()

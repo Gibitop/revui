@@ -235,7 +235,19 @@ export class IntelligenceService {
       const path = relative(root, fileURLToPath(uri)).split(sep).join('/')
       // Navigation stays inside the reviewed target, including unchanged files.
       if (!snapshot.paths.includes(path)) continue
-      const position = 'targetUri' in item ? item.targetSelectionRange.start : item.range.start
+      const range = 'targetUri' in item ? item.targetSelectionRange : item.range
+      const position = range.start
+      // Module imports target either the whole file or an empty range at its start.
+      let fileOnly = false
+      if (request.kind === 'definition' && position.line === 0 && position.character === 0) {
+        fileOnly = range.end.line === 0 && range.end.character === 0
+        if (!fileOnly) {
+          const targetLines = (await readFile(fileURLToPath(uri), 'utf8')).split('\n')
+          fileOnly =
+            range.end.line === targetLines.length - 1 &&
+            range.end.character === targetLines.at(-1)!.replace(/\r$/, '').length
+        }
+      }
       if (
         !locations.some(
           (item) =>
@@ -244,7 +256,12 @@ export class IntelligenceService {
             item.character === position.character,
         )
       )
-        locations.push({ path, line: position.line + 1, character: position.character })
+        locations.push({
+          path,
+          line: position.line + 1,
+          character: position.character,
+          ...(fileOnly ? { fileOnly: true } : {}),
+        })
     }
     return { hover: '', locations }
   }

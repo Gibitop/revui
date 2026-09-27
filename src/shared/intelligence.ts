@@ -1,4 +1,4 @@
-export type CodeLocation = { path: string; line: number; character: number }
+export type CodeLocation = { path: string; line: number; character: number; fileOnly?: boolean }
 export type IntelligenceRequest = {
   snapshot: string
   workspace: string | null

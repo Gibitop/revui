@@ -67,7 +67,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   headerFlash: number
   threadFocus: string | null
   threadVisit: number
-  searchHit: (ContentMatch & { key: number; codeNavigation?: boolean }) | null
+  searchHit: (ContentMatch & { key: number; codeNavigation?: boolean; fileOnly?: boolean }) | null
 }) {
   const gitlab = useGitLab()
   const virtualizer = useVirtualizer()
@@ -239,7 +239,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
           side: remoteFocus.new_line ? ('additions' as const) : ('deletions' as const),
           key: `gitlab:${threadFocus}:${threadVisit}`,
         }
-      : searchHit
+      : searchHit && !searchHit.fileOnly
         ? { line: searchHit.line, side: 'additions' as const, key: `search:${searchHit.key}` }
         : focusedThread && focusedThread.fingerprint === content.data?.fingerprint
           ? {
