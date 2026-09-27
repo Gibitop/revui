@@ -214,6 +214,7 @@ export function ContentSearch({
       </DialogTrigger>
       <DialogContent
         closeLabel="Close search"
+        animation="slide-right"
         aria-describedby={undefined}
         className="inset-y-0 right-0 left-auto flex h-dvh w-[50vw] max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-y-0 border-r-0 p-0 shadow-2xl"
         onOpenAutoFocus={(event) => {

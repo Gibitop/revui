@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
 
 @custom-variant dark (&:is(.dark *));
 
@@ -138,14 +139,6 @@ textarea {
 }
 [data-platform='win32'] .toolbar {
   padding-right: calc(100vw - env(titlebar-area-width, 100vw) + 12px);
-}
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation: none !important;
-    transition: none !important;
-  }
 }
 .file-tree {
   --trees-accent-override: var(--foreground);

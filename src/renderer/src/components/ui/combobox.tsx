@@ -36,6 +36,7 @@ export function ComboboxContent({
           data-slot="combobox-content"
           className={cn(
             'max-h-75 w-[max(var(--anchor-width),240px)] overflow-auto rounded-md border bg-background p-1 text-foreground shadow-lg',
+            'origin-[var(--transform-origin)] transition-[opacity,scale] duration-150 data-starting-style:scale-95 data-starting-style:opacity-0 data-ending-style:scale-95 data-ending-style:opacity-0',
             className,
           )}
           {...props}
