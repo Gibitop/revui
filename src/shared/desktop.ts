@@ -35,6 +35,8 @@ export type Settings = {
   aiProviders: ProviderSettings
   aiTasks: AITaskSettings
   aiLanguage: string
+  autoAIReview: boolean
+  autoAIReviewOrder: boolean
   recentRepositories: string[]
 }
 export type PreferencesPatch = Partial<Omit<Settings, 'version' | 'recentRepositories'>>

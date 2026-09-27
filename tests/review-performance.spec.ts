@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AIRequest, AIState } from '../src/shared/ai'
 
-test('large reviews keep trees virtualized and resize diffs when sidebars toggle', async () => {
+test('large reviews size AI trees to content, preserve selection scroll and resize diffs', async () => {
   test.setTimeout(60000)
   const root = await mkdtemp(join(tmpdir(), 'revui-performance-'))
   const repository = join(root, 'repo')
@@ -126,20 +126,30 @@ test('large reviews keep trees virtualized and resize diffs when sidebars toggle
     await page.getByRole('button', { name: 'Close AI panel', exact: true }).click()
     await expect(page.getByRole('complementary', { name: 'Codex review panel' })).toHaveCount(0)
     await expect(firstDiff).toHaveAttribute('data-diff-type', 'split')
+    await expect.poll(() => page.getByRole('treeitem').count()).toBeLessThan(100)
     await page.getByRole('button', { name: 'File ordering' }).click()
     await page.getByRole('menuitemradio', { name: 'AI review order' }).click()
     const section = page.getByRole('region', { name: 'Review step 1: Large section' })
     await section.getByRole('treeitem').first().focus()
     await page.keyboard.press('Home')
     await expect(section.getByRole('treeitem', { name: /^src/ })).toBeVisible()
-    await expect.poll(() => section.getByRole('treeitem').count()).toBeLessThan(100)
+    await expect(section.getByRole('treeitem')).toHaveCount(paths.length + 1)
     await section.getByRole('treeitem', { name: /file-000.ts/ }).click()
     await page.getByRole('button', { name: 'Next file', exact: true }).click()
     await expect(section.getByRole('treeitem', { selected: true })).toHaveAttribute(
       'data-item-path',
       paths[1],
     )
-    // Keyboard navigation to an unmounted row must scroll the virtual tree into view.
+    const order = page.getByLabel('Suggested review order', { exact: true })
+    const middleRow = section.locator(`[data-item-path="${paths[240]}"]`)
+    await middleRow.evaluate((row) => row.scrollIntoView({ block: 'center' }))
+    const scrollTop = await order.evaluate((element) => element.scrollTop)
+    await middleRow.click()
+    await expect(middleRow).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('article', { name: paths[240], exact: true })).toBeInViewport()
+    await expect.poll(() => order.evaluate((element) => element.scrollTop)).toBe(scrollTop)
+    await expect(middleRow).toBeInViewport()
+    // Keyboard navigation must reveal a row outside the sidebar's viewport.
     await section.getByRole('treeitem', { selected: true }).focus()
     await page.keyboard.press('End')
     await page.keyboard.press('Enter')
@@ -147,8 +157,8 @@ test('large reviews keep trees virtualized and resize diffs when sidebars toggle
       'data-item-path',
       paths.at(-1)!,
     )
-    await expect(section.getByRole('treeitem', { selected: true })).toBeVisible()
-    await expect.poll(() => section.getByRole('treeitem').count()).toBeLessThan(100)
+    await expect(section.getByRole('treeitem', { selected: true })).toBeInViewport()
+    await expect(section.getByRole('treeitem')).toHaveCount(paths.length + 1)
     await page.getByRole('button', { name: 'Next file', exact: true }).click()
     await expect(section.getByRole('treeitem', { selected: true })).toHaveAttribute(
       'data-item-path',
@@ -158,7 +168,7 @@ test('large reviews keep trees virtualized and resize diffs when sidebars toggle
     await expect(section.getByRole('treeitem')).toHaveCount(1)
     await section.getByRole('treeitem', { name: /^src/ }).click()
     await expect(section.getByRole('treeitem', { name: /file-000.ts/ })).toBeVisible()
-    await expect.poll(() => section.getByRole('treeitem').count()).toBeLessThan(100)
+    await expect(section.getByRole('treeitem')).toHaveCount(paths.length + 1)
   } finally {
     await application.close()
     await rm(root, { recursive: true, force: true })

@@ -72,6 +72,8 @@ const preferencesSchema = z
       .trim()
       .max(100)
       .refine((value) => !/[\r\n\0]/.test(value)),
+    autoAIReview: z.boolean(),
+    autoAIReviewOrder: z.boolean(),
     aiPanelOpen: z.boolean(),
     aiPanelWidth: z.number().int().min(380).max(800),
   })
@@ -96,6 +98,8 @@ const settingsSchema = preferencesSchema
     aiProviders: preferencesSchema.shape.aiProviders.default(defaultProviders),
     aiTasks: aiTasksSchema.default(defaultAITasks),
     aiLanguage: preferencesSchema.shape.aiLanguage.default(''),
+    autoAIReview: z.boolean().default(false),
+    autoAIReviewOrder: z.boolean().default(false),
     version: z.literal(1),
     recentRepositories: z.array(z.string().min(1)).max(10),
   })
@@ -109,6 +113,8 @@ export class SettingsStore {
     aiProviders: structuredClone(defaultProviders),
     aiTasks: structuredClone(defaultAITasks),
     aiLanguage: '',
+    autoAIReview: false,
+    autoAIReviewOrder: false,
     version: 1,
     theme: 'system',
     diffLayout: 'auto',

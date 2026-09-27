@@ -221,3 +221,24 @@ it('retires provider disable flags while retaining configured binaries', async (
   await store.updatePreferences({ theme: 'dark' })
   expect(await readFile(join(directory, 'settings.json'), 'utf8')).not.toContain('"enabled"')
 })
+
+it('defaults automatic AI tasks off for existing settings and persists independent switches', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'revui-auto-ai-settings-'))
+  directories.push(directory)
+  const store = new SettingsStore(directory)
+  expect(store.get()).toMatchObject({ autoAIReview: false, autoAIReviewOrder: false })
+  const legacy: Record<string, unknown> = store.get()
+  delete legacy.autoAIReview
+  delete legacy.autoAIReviewOrder
+  await writeFile(join(directory, 'settings.json'), JSON.stringify(legacy))
+  await store.load()
+  expect(store.warning).toBeNull()
+  expect(store.get()).toMatchObject({ autoAIReview: false, autoAIReviewOrder: false })
+  await store.updatePreferences({ autoAIReview: true })
+  const reopened = new SettingsStore(directory)
+  await reopened.load()
+  expect(reopened.get()).toMatchObject({ autoAIReview: true, autoAIReviewOrder: false })
+  await reopened.updatePreferences({ autoAIReview: false, autoAIReviewOrder: true })
+  await store.load()
+  expect(store.get()).toMatchObject({ autoAIReview: false, autoAIReviewOrder: true })
+})

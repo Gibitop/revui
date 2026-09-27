@@ -173,6 +173,7 @@ function ReviewSession({
   }, [initialComparison, openComparison, queryClient])
   const comparisonChange = useRef(0)
   const [selected, setSelected] = useState('')
+  const [headerFlash, setHeaderFlash] = useState({ path: '', visit: 0 })
   const diffScrollRef = useRef<HTMLDivElement>(null)
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null)
   const workspaceTools = useRef<{ initialize: () => void }>(null)
@@ -349,7 +350,8 @@ function ReviewSession({
       )
   }, [fileOrder, paths, snapshot.data?.paths, unresolved, filter])
   const select = useCallback(
-    (path: string) => {
+    (path: string, flashHeader = false) => {
+      if (flashHeader) setHeaderFlash((previous) => ({ path, visit: previous.visit + 1 }))
       if (!paths.includes(path)) {
         setFilter('changed')
         setSearch('')
@@ -690,7 +692,7 @@ function ReviewSession({
               paths={paths}
               totals={totals}
               selected={selected}
-              select={select}
+              select={(path) => select(path, true)}
               theme={theme}
               canNavigate={
                 filter === 'unresolved' ? !!navigableThreads.length : !!navigationPaths.length
@@ -752,6 +754,7 @@ function ReviewSession({
                         threads={threadsByPath.get(path) ?? emptyThreads}
                         settings={fileSettings}
                         theme={theme}
+                        headerFlash={headerFlash.path === path ? headerFlash.visit : 0}
                         threadFocus={path === selected ? threadFocus : null}
                         threadVisit={path === selected && threadFocus ? threadVisit : 0}
                         searchHit={searchHit?.path === path ? searchHit : null}

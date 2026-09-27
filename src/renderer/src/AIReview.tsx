@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useRef,
   useMemo,
   useState,
@@ -208,6 +209,26 @@ export function AIReviewProvider({
       return undefined
     }
   }
+  const automatic = useRef<{ snapshot?: string; review: boolean; order: boolean }>({
+    review: false,
+    order: false,
+  })
+  const startAutomatic = useEffectEvent(() => {
+    if (!id || state?.snapshot !== id || !snapshot?.files.length) return
+    if (automatic.current.snapshot !== id)
+      automatic.current = { snapshot: id, review: false, order: false }
+    if (settings.autoAIReview && !automatic.current.review) {
+      automatic.current.review = true
+      if (!state.review.running) void run({ kind: 'review', snapshot: id })
+    }
+    if (settings.autoAIReviewOrder && !automatic.current.order) {
+      automatic.current.order = true
+      if (!state.order.running) void run({ kind: 'order', snapshot: id })
+    }
+  })
+  useEffect(() => {
+    startAutomatic()
+  }, [id, state?.snapshot, settings.autoAIReview, settings.autoAIReviewOrder])
   return (
     <AIContext.Provider
       value={{

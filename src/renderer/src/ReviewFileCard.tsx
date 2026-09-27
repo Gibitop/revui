@@ -37,6 +37,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   threads,
   settings,
   theme,
+  headerFlash,
   threadFocus,
   threadVisit,
   searchHit,
@@ -52,6 +53,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   threads: LocalThread[]
   settings: Pick<Settings, 'diffLayout' | 'wrapLines' | 'preferredIDE'>
   theme: 'light' | 'dark'
+  headerFlash: number
   threadFocus: string | null
   threadVisit: number
   searchHit: (ContentMatch & { key: number }) | null
@@ -59,6 +61,19 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   const gitlab = useGitLab()
   const virtualizer = useVirtualizer()
   const root = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (!headerFlash || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const animation = root.current
+      ?.querySelector('header')
+      ?.animate(
+        [
+          { backgroundColor: 'color-mix(in srgb, #3b82f6 22%, var(--surface))' },
+          { backgroundColor: 'var(--surface)' },
+        ],
+        { duration: 1000, easing: 'ease-in' },
+      )
+    return () => animation?.cancel()
+  }, [headerFlash])
   const [visible, setVisible] = useState(false)
   const loadContent = visible || !!searchHit
   const [narrow, setNarrow] = useState(false)

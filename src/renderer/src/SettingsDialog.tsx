@@ -455,6 +455,40 @@ function AISettings({
           script”. Leave empty to follow the conversation’s language.
         </p>
       </div>
+      <div className="mt-6 divide-y">
+        {(
+          [
+            {
+              key: 'autoAIReview',
+              label: 'Automatically run AI review',
+              description: 'Review changes in the background when you open a comparison.',
+            },
+            {
+              key: 'autoAIReviewOrder',
+              label: 'Automatically generate AI review order',
+              description:
+                'Prepare the review order when you open a comparison, reusing cached results.',
+            },
+          ] as const
+        ).map(({ key, label, description }) => (
+          <div key={key} className="flex items-center justify-between gap-4 py-5">
+            <div>
+              <label htmlFor={key} className="cursor-pointer font-semibold">
+                {label}
+              </label>
+              <p id={`${key}-description`} className="mt-1 text-muted-foreground">
+                {description}
+              </p>
+            </div>
+            <Switch
+              id={key}
+              aria-describedby={`${key}-description`}
+              checked={settings[key]}
+              onCheckedChange={(checked) => onChange({ [key]: checked })}
+            />
+          </div>
+        ))}
+      </div>
       <div className="mt-6 space-y-6">
         {(Object.entries(aiTasks) as [keyof typeof aiTasks, string][]).map(([task, label]) => {
           const selection = settings.aiTasks[task]

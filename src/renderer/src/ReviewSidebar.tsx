@@ -378,9 +378,8 @@ function ReviewOrder({
   const state = loaded ? ai?.state : undefined
   const listRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    listRef.current
-      ?.querySelector(view === 'tree' ? '[data-selected-section="true"]' : '[aria-current="true"]')
-      ?.scrollIntoView({ block: 'nearest' })
+    if (view === 'tree') return
+    listRef.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' })
   }, [selected, view])
   const error = state?.order.error || (!state ? ai?.error : '')
   const loading =
@@ -637,14 +636,20 @@ const ReviewTree = memo(function ReviewTree({
     } finally {
       syncingSelection.current = false
     }
-    model.scrollToPath(selected, { focus: false, offset: 'nearest' })
-    if (!section) return
+    if (!section) {
+      model.scrollToPath(selected, { focus: false, offset: 'nearest' })
+      return
+    }
     const frame = requestAnimationFrame(() => {
       const host = model.getFileTreeContainer()
-      if (!host || !model.getItem(selected)) return
+      const row = host?.shadowRoot?.querySelector<HTMLElement>(
+        `[data-item-path="${CSS.escape(selected)}"]`,
+      )
+      if (!row) return
       const header = host?.closest('section')?.querySelector('[data-testid="review-step-header"]')
-      host.style.scrollMarginTop = `${header?.getBoundingClientRect().height ?? 0}px`
-      host.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+      // Reveal the selected row below the sticky heading, not the entire section.
+      row.style.scrollMarginTop = `${header?.getBoundingClientRect().height ?? 0}px`
+      row.scrollIntoView({ block: 'nearest', inline: 'nearest' })
     })
     return () => cancelAnimationFrame(frame)
   }, [model, selected, prepared, section])
@@ -730,10 +735,9 @@ const ReviewTree = memo(function ReviewTree({
         if (row?.dataset.itemPath === selected) onSelect(selected)
       }}
       className={`file-tree block min-h-0 flex-1 ${section ? '[--trees-padding-inline-override:0px]' : ''}`}
-      // A full-content viewport renders every row and defeats the tree's virtualizer.
       style={{
         colorScheme: theme,
-        ...(section ? { height: treeHeight, maxHeight: '60vh', flex: 'none' } : {}),
+        ...(section ? { height: treeHeight, flex: 'none' } : {}),
       }}
     />
   )

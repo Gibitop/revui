@@ -476,3 +476,112 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('automatic AI switches run independently and persist when reopening a comparison', async () => {
+  test.skip(
+    process.platform === 'win32',
+    'The executable protocol fixture uses a POSIX shebang; Windows CLI validation is separate.',
+  )
+  const root = await mkdtemp(join(tmpdir(), 'revui-ai-ui-'))
+  const repository = join(root, 'repo'),
+    bin = join(root, 'bin')
+  await mkdir(repository)
+  await mkdir(bin)
+  const git = (...args: string[]) =>
+    execFileSync('git', [
+      '-C',
+      repository,
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.com',
+      '-c',
+      'commit.gpgsign=false',
+      ...args,
+    ])
+  git('init', '-b', 'main')
+  await writeFile(join(repository, 'file.ts'), 'export const value = 1\n')
+  git('add', '.')
+  git('commit', '-m', 'base')
+  await writeFile(join(repository, 'file.ts'), 'export const value = 2\n')
+  await mkdir(join(repository, 'helpers'))
+  await writeFile(join(repository, 'helpers/a.ts'), 'export const helper = 1\n')
+  await writeFile(join(repository, 'z.ts'), 'export const entry = 1\n')
+  await writeFile(
+    join(bin, 'codex'),
+    `#!${process.execPath}\n${await readFile('tests/fixtures/codex-server.cjs', 'utf8')}`,
+  )
+  await chmod(join(bin, 'codex'), 0o755)
+  const env: Record<string, string> = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined,
+      ),
+    ),
+    PATH: `${bin}:${process.env.PATH}`,
+    REVUI_USER_DATA: join(root, 'data'),
+    REVUI_TEST_HIDDEN: '1',
+    REVUI_CODEX_LOG: join(root, 'codex-requests.jsonl'),
+  }
+  delete env.ELECTRON_RUN_AS_NODE
+  delete env.ELECTRON_RENDERER_URL
+  let application = await electron.launch({ args: ['.'], env })
+  try {
+    let page = await application.firstWindow()
+    await application.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
+    }, repository)
+    await page.getByRole('button', { name: 'Open repository', exact: true }).click()
+    await page
+      .getByRole('dialog', { name: 'Open repository' })
+      .getByRole('button', { name: 'Open folder…', exact: true })
+      .click()
+    await expect(page.getByRole('article', { name: 'file.ts', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('tab', { name: 'AI Scenarios', exact: true }).click()
+    const reviewSwitch = page.getByRole('switch', {
+      name: 'Automatically run AI review',
+      exact: true,
+    })
+    const orderSwitch = page.getByRole('switch', {
+      name: 'Automatically generate AI review order',
+      exact: true,
+    })
+    await expect(reviewSwitch).not.toBeChecked()
+    await expect(orderSwitch).not.toBeChecked()
+    const turns = async () =>
+      (await readFile(join(root, 'codex-requests.jsonl'), 'utf8').catch(() => ''))
+        .split('\n')
+        .filter((line) => line.includes('"method":"turn/start"'))
+    expect(await turns()).toHaveLength(0)
+    await orderSwitch.click()
+    await expect(page.getByTestId('ai-order-notification')).toBeVisible()
+    expect(await turns()).toHaveLength(1)
+    await expect(reviewSwitch).not.toBeChecked()
+    await reviewSwitch.click()
+    await expect(page.getByTestId('ai-review-notification')).toBeVisible()
+    expect(await turns()).toHaveLength(2)
+    await page.getByRole('button', { name: 'Close settings' }).click()
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await expect(reviewSwitch).toBeChecked()
+    await expect(orderSwitch).toBeChecked()
+    expect(await turns()).toHaveLength(2)
+    await application.close()
+    application = await electron.launch({ args: ['.'], env })
+    page = await application.firstWindow()
+    expect((await page.evaluate(() => window.desktop.getBootstrap())).settings).toMatchObject({
+      autoAIReview: true,
+      autoAIReviewOrder: true,
+    })
+    await page
+      .getByRole('region', { name: 'Recent repositories' })
+      .getByRole('button', { name: /^repo / })
+      .click()
+    await expect(page.getByTestId('ai-review-notification')).toBeVisible()
+    // Review runs again on open; unchanged review order is served from its cache.
+    expect(await turns()).toHaveLength(3)
+  } finally {
+    await application.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
