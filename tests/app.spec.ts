@@ -349,7 +349,17 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await expect(page.getByLabel('Comment on example.ts')).toHaveValue(
       /```suggestion:-0\+0\n.+\n```/,
     )
-    await page.getByLabel('Comment on example.ts').fill('Please **explain** this value.')
+    await page
+      .getByLabel('Comment on example.ts')
+      .fill(
+        [
+          'Please **explain** this value.',
+          '```ts\nconst value: string = "hello"\n```',
+          '```\ndef greet(name):\n    print("Hello", name)\n```',
+          '```text\nconst value = "plain"\n```',
+          '```plaintext\nconst value = "plain"\n```',
+        ].join('\n\n'),
+      )
     await expect(
       threadComposer.getByRole('button', { name: 'Save draft', exact: true }),
     ).toHaveCount(0)
@@ -357,6 +367,20 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
     await expect(file.getByText('Please explain this value.')).toBeVisible()
     await expect(file.locator('.markdown strong')).toHaveText('explain')
     const comment = file.getByTestId('thread-message').first()
+    const blocks = comment.locator('pre code')
+    await expect(blocks).toHaveCount(4)
+    await expect(blocks.nth(0).locator('.hljs-keyword')).toHaveText('const')
+    await expect(blocks.nth(1).locator('.hljs-keyword')).not.toHaveCount(0)
+    for (const index of [2, 3]) await expect(blocks.nth(index).locator('span')).toHaveCount(0)
+    expect(
+      await blocks
+        .nth(0)
+        .locator('.hljs-keyword')
+        .evaluate(
+          (token) => getComputedStyle(token).color !== getComputedStyle(token.parentElement!).color,
+        ),
+    ).toBe(true)
+
     const editBounds = await comment
       .getByRole('button', { name: 'Edit', exact: true })
       .boundingBox()
@@ -373,9 +397,18 @@ test('local review comparisons, file layouts, threads, progress, refresh, and re
 
     await comment
       .getByRole('textbox', { name: 'Edit local comment' })
-      .fill('Please **explain** this value. Edited.')
+      .fill(
+        'Please **explain** this value. Edited.\n\n```suggestion:-0+0\nexport const value = 42;\n```',
+      )
     await comment.getByRole('button', { name: 'Save edit', exact: true }).click()
     await expect(comment).toContainText('Edited.')
+    const localSuggestion = comment.locator('[data-suggestion-diff]')
+    await expect(localSuggestion.locator('[data-change="removed"]')).toContainText(
+      'export const value =',
+    )
+    await expect(localSuggestion.locator('[data-change="added"]')).toContainText(
+      'export const value = 42;',
+    )
     await file.getByRole('checkbox', { name: 'Reviewed example.ts' }).check()
     await expect(file.getByRole('button', { name: 'Expand example.ts' })).toHaveAttribute(
       'aria-expanded',

@@ -111,7 +111,17 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     )
     for (let i = 0; i < 5; i++)
       await composer.getByRole('button', { name: 'Increase end line' }).click()
-    await page.getByLabel('Comment on src/long.ts').fill('Review this distant line')
+    await expect(page.getByLabel('Comment on src/long.ts')).toHaveValue(
+      '```suggestion:-2+0\n' + lines.slice(598, 601).join('\n') + '\n```',
+    )
+    const input = page.getByLabel('Comment on src/long.ts')
+    await input.fill('')
+    // Typing must not rebuild the rendered code for every keystroke.
+    const renderedLine = await file.locator('[data-line="600"]').last().elementHandle()
+    await input.pressSequentially('Review this distant line')
+    await expect(input).toHaveValue('Review this distant line')
+    expect(await renderedLine!.evaluate((line) => line.isConnected)).toBe(true)
+    await renderedLine!.dispose()
     await page.getByRole('button', { name: 'Post now', exact: true }).click()
     await expect(file.getByText('Review this distant line')).toBeVisible()
     const stamp = file.locator('[data-testid="comment-date"]')

@@ -1394,6 +1394,7 @@ export function GitLabDiscussion({
         ),
         date: note.created_at ?? note.updated_at,
         body: note.body,
+        suggestions: note.suggestions,
         editable: !note.system && note.author.id === review.userId,
       }))}
       loadSuggestion={
@@ -1519,14 +1520,7 @@ function LocalMRThread({
       mutate={mutate}
       pending={pending}
       current={current}
-      suggestion={
-        current && source
-          ? source.contents
-              .split('\n')
-              .slice(thread.start - 1, thread.end)
-              .join('\n')
-          : undefined
-      }
+      sourceContents={current ? source?.contents : undefined}
       inOverlay
       onNavigate={onNavigate}
     />

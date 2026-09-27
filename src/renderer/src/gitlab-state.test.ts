@@ -17,6 +17,17 @@ const review = {
         {
           id: 2,
           body: 'original',
+          suggestions: [
+            {
+              id: 1,
+              from_line: 1,
+              to_line: 1,
+              from_content: 'old',
+              to_content: 'new',
+              applicable: true,
+              applied: false,
+            },
+          ],
           author: user,
           resolvable: true,
           resolved: false,
@@ -38,6 +49,8 @@ describe('optimistic GitLab review', () => {
       body: 'edited',
     })
     expect(edited.discussions[0].notes[0].body).toBe('edited')
+    expect(edited.discussions[0].notes[0].suggestions).toBeUndefined()
+    expect(review.discussions[0].notes[0].suggestions).toHaveLength(1)
     const resolved = optimisticGitLabReview(review, {
       kind: 'resolve',
       session: 'session',

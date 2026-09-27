@@ -13,7 +13,8 @@ test('large reviews size AI trees to content, preserve selection scroll and resi
   await mkdir(join(repository, 'src'), { recursive: true })
   await mkdir(data)
   execFileSync('git', ['-C', repository, 'init', '-b', 'main'])
-  await writeFile(join(repository, 'src/file-000.ts'), 'export const value = 0\n')
+  const lines = Array.from({ length: 220 }, (_, i) => `export const value${i + 1} = ${i}`)
+  await writeFile(join(repository, 'src/file-000.ts'), lines.join('\n') + '\n')
   execFileSync('git', ['-C', repository, 'add', '.'])
   execFileSync('git', [
     '-C',
@@ -30,8 +31,10 @@ test('large reviews size AI trees to content, preserve selection scroll and resi
   ])
   const paths = Array.from({ length: 479 }, (_, i) => `src/file-${String(i).padStart(3, '0')}.ts`)
   await Promise.all(
-    paths.map((path) => writeFile(join(repository, path), 'export const value = 1\n')),
+    paths.slice(1).map((path) => writeFile(join(repository, path), 'export const value = 1\n')),
   )
+  lines[102] = 'export const value103 = 9999'
+  await writeFile(join(repository, paths[0]), lines.join('\n') + '\n')
   await writeFile(
     join(data, 'settings.json'),
     JSON.stringify({
@@ -135,6 +138,32 @@ test('large reviews size AI trees to content, preserve selection scroll and resi
     await expect(section.getByRole('treeitem', { name: /^src/ })).toBeVisible()
     await expect(section.getByRole('treeitem')).toHaveCount(paths.length + 1)
     await section.getByRole('treeitem', { name: /file-000.ts/ }).click()
+    const file = page.getByRole('article', { name: paths[0], exact: true })
+    const hiddenRanges = file.getByText(/\d+ unmodified lines/)
+    const hiddenCount = await hiddenRanges.count()
+    expect(hiddenCount).toBeGreaterThan(0)
+    for (const side of ['additions', 'deletions']) {
+      await section.getByRole('treeitem', { name: /file-000.ts/ }).click()
+      await file.locator(`[data-${side}] [data-column-number="103"]`).hover()
+      await file.locator('[data-utility-button]').click()
+      const composer = file.getByTestId('thread-composer')
+      await expect(composer.getByRole('textbox')).toBeInViewport()
+      await expect(hiddenRanges).toHaveCount(hiddenCount)
+      if (side === 'additions') {
+        // Extending into folded context must still reveal the range and editor.
+        for (let i = 0; i < 5; i++)
+          await composer.getByRole('button', { name: 'Decrease start line' }).click()
+        await expect(hiddenRanges).toHaveCount(0)
+        await expect(composer.getByRole('textbox')).toBeInViewport()
+        await composer.getByRole('button', { name: 'Cancel', exact: true }).click()
+      } else {
+        await composer.getByRole('textbox').fill('Keep this thread beside the change')
+        await composer.getByRole('button', { name: 'Post now', exact: true }).click()
+        await expect(file.getByText('Keep this thread beside the change')).toBeInViewport()
+        await expect(hiddenRanges).toHaveCount(hiddenCount)
+      }
+    }
+
     await page.getByRole('button', { name: 'Next file', exact: true }).click()
     await expect(section.getByRole('treeitem', { selected: true })).toHaveAttribute(
       'data-item-path',

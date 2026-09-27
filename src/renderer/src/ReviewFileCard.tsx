@@ -6,7 +6,7 @@ import { IDEButton } from './IDEButton'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { CommentComposer } from './CommentComposer'
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState, type ComponentProps, type RefObject } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { File, FileDiff, useVirtualizer, type FileDiffMetadata } from '@pierre/diffs/react'
 import {
@@ -118,7 +118,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   const [force, setForce] = useState(false)
   const [range, setRange] = useState<SelectedLineRange | null>(null)
   const [selectingRange, setSelectingRange] = useState<SelectedLineRange | null>(null)
-  const [body, setBody] = useState('')
+  const draft = useRef('')
   const [destination, setDestination] = useState<'local' | 'gitlab'>('gitlab')
   const [pendingReviewed, setPendingReviewed] = useState<boolean | null>(null)
   const queryClient = useQueryClient()
@@ -197,7 +197,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   const outdated = threads.filter((thread) => thread.fingerprint !== content.data?.fingerprint)
 
   const focusedThread = threads.find((thread) => thread.id === threadFocus)
-  const save = async () => {
+  const save = async (body: string) => {
     if (!range || (range.endSide && range.side && range.endSide !== range.side)) return
     await mutation
       .mutateAsync({
@@ -209,7 +209,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
         body,
       })
       .then(() => {
-        setBody('')
+        draft.current = ''
         setRange(null)
       })
       .catch(() => undefined)
@@ -300,6 +300,21 @@ export const ReviewFileCard = memo(function ReviewFileCard({
         metadata: discussion,
       })
   }
+  const threadRanges = annotations.flatMap(({ metadata, side, lineNumber }) => {
+    if (metadata === 'composer') return []
+    if ('notes' in metadata) {
+      if (metadata.notes[0]?.resolved) return []
+      const start = metadata.notes[0]?.position?.line_range?.start
+      return [
+        {
+          start: (side === 'deletions' ? start?.old_line : start?.new_line) ?? lineNumber,
+          end: lineNumber,
+          side,
+        },
+      ]
+    }
+    return metadata.resolved ? [] : [{ start: metadata.start, end: metadata.end, side }]
+  })
   const options = {
     theme: { dark: 'pierre-dark', light: 'pierre-light' } as const,
     themeType: theme,
@@ -322,37 +337,24 @@ export const ReviewFileCard = memo(function ReviewFileCard({
       setRange(selection)
     },
     unsafeCSS: codeCSS,
+    // A comment in an already visible hunk should not unfold the entire file.
+    // Reveal hidden context only when a target range actually extends into it.
     expandUnchanged:
-      (!!anchor &&
-        (!searchHit?.codeNavigation ||
-          !diff?.hunks.some(
-            (hunk) =>
-              anchor.line >= hunk.additionStart &&
-              anchor.line < hunk.additionStart + hunk.additionCount,
-          ))) ||
-      annotations.some(({ metadata }) =>
-        metadata === 'composer'
-          ? true
-          : 'notes' in metadata
-            ? !metadata.notes[0]?.resolved
-            : !metadata.resolved,
+      !!diff &&
+      [
+        ...threadRanges,
+        ...(anchor
+          ? [{ start: anchor.start ?? anchor.line, end: anchor.line, side: anchor.side }]
+          : []),
+      ].some(
+        (range) =>
+          !diff.hunks.some((hunk) => {
+            const start = range.side === 'deletions' ? hunk.deletionStart : hunk.additionStart
+            const count = range.side === 'deletions' ? hunk.deletionCount : hunk.additionCount
+            return range.start >= start && range.end < start + count
+          }),
       ),
     onPostRender: (node: HTMLElement, instance: object) => {
-      const threadRanges = annotations.flatMap(({ metadata, side, lineNumber }) => {
-        if (metadata === 'composer') return []
-        if ('notes' in metadata) {
-          if (metadata.notes[0]?.resolved) return []
-          const start = metadata.notes[0]?.position?.line_range?.start
-          return [
-            {
-              start: (side === 'deletions' ? start?.old_line : start?.new_line) ?? lineNumber,
-              end: lineNumber,
-              side,
-            },
-          ]
-        }
-        return metadata.resolved ? [] : [{ start: metadata.start, end: metadata.end, side }]
-      })
       const split = node.shadowRoot?.querySelector('[data-diff-type="split"]') != null
       const ranges = threadRanges.flatMap((range) => {
         if (!(instance instanceof VirtualizedFileDiff)) return [range]
@@ -388,13 +390,19 @@ export const ReviewFileCard = memo(function ReviewFileCard({
       if (!anchor || scrolledHit.current === anchor.key) return
       if (!(instance instanceof VirtualizedFileDiff) && !(instance instanceof VirtualizedFile))
         return
-      const position =
-        instance instanceof VirtualizedFileDiff
-          ? instance.getLinePosition(anchor.line, anchor.side)
-          : instance.getLinePosition(anchor.line)
-      if (!position) return
       scrolledHit.current = anchor.key
       requestAnimationFrame(() => {
+        if (scrolledHit.current !== anchor.key || !node.isConnected) return
+        // Read after the virtualizer has updated its layout for expanded context
+        // and the new annotation, rather than retaining the previous position.
+        const position =
+          instance instanceof VirtualizedFileDiff
+            ? instance.getLinePosition(anchor.line, anchor.side)
+            : instance.getLinePosition(anchor.line)
+        if (!position) {
+          scrolledHit.current = null
+          return
+        }
         const scroll = root.current?.closest('[data-testid="diff-scroll"]')?.firstElementChild
         if (scroll)
           scroll.scrollTop +=
@@ -461,42 +469,26 @@ export const ReviewFileCard = memo(function ReviewFileCard({
               (destination === 'gitlab' && gitlab?.review?.aligned && side !== 'additions')
                 ? undefined
                 : lines.slice(start - 1, end).join('\n')
-            return destination === 'gitlab' && gitlab?.review?.aligned ? (
-              <GitLabComposer
-                anchor={{ path, side, line: end, startLine: start }}
+            return (
+              <FileCommentComposer
+                draft={draft}
+                anchor={
+                  destination === 'gitlab' && gitlab?.review?.aligned
+                    ? { path, side, line: end, startLine: start }
+                    : undefined
+                }
+                label={`Comment on ${path}`}
+                busy={mutation.isPending || !record}
                 headerActions={headerActions}
                 range={commentRange}
                 onRangeChange={onRangeChange}
                 suggestion={suggestion}
-                value={body}
-                onChange={setBody}
-                onSaved={() => {
+                onPost={save}
+                onClose={() => {
                   setRange(null)
-                  setBody('')
-                }}
-                onCancel={() => {
-                  setRange(null)
-                  setBody('')
+                  draft.current = ''
                 }}
               />
-            ) : (
-              <>
-                <CommentComposer
-                  body={body}
-                  onChange={setBody}
-                  label={`Comment on ${path}`}
-                  busy={mutation.isPending || !record}
-                  headerActions={headerActions}
-                  range={commentRange}
-                  onRangeChange={onRangeChange}
-                  suggestion={suggestion}
-                  onPost={() => void save()}
-                  onCancel={() => {
-                    setRange(null)
-                    setBody('')
-                  }}
-                />
-              </>
             )
           })()}
         {mutation.error && <p role="alert">{mutation.error.message}</p>}
@@ -507,15 +499,11 @@ export const ReviewFileCard = memo(function ReviewFileCard({
       <Thread
         thread={thread}
         current={thread.fingerprint === content.data?.fingerprint}
-        suggestion={
+        sourceContents={
           thread.fingerprint === content.data?.fingerprint
-            ? (thread.side === 'additions'
-                ? content.data?.newFile?.contents
-                : content.data?.oldFile?.contents
-              )
-                ?.split('\n')
-                .slice(thread.start - 1, thread.end)
-                .join('\n')
+            ? thread.side === 'additions'
+              ? content.data?.newFile?.contents
+              : content.data?.oldFile?.contents
             : undefined
         }
         mutate={(action) => mutation.mutateAsync(action)}
@@ -774,3 +762,42 @@ export const ReviewFileCard = memo(function ReviewFileCard({
     </article>
   )
 })
+
+// Keep keystrokes below the diff renderer. The ref preserves drafts when annotation
+// slots remount after range changes or virtualization.
+function FileCommentComposer({
+  draft,
+  anchor,
+  onPost,
+  onClose,
+  ...props
+}: Omit<ComponentProps<typeof CommentComposer>, 'body' | 'onChange' | 'onPost' | 'onCancel'> & {
+  draft: RefObject<string>
+  anchor?: ComponentProps<typeof GitLabComposer>['anchor']
+  onPost: (body: string) => Promise<void>
+  onClose: () => void
+}) {
+  const [body, setBody] = useState(() => draft.current)
+  const onChange = (body: string) => {
+    draft.current = body
+    setBody(body)
+  }
+  return anchor ? (
+    <GitLabComposer
+      {...props}
+      anchor={anchor}
+      value={body}
+      onChange={onChange}
+      onSaved={onClose}
+      onCancel={onClose}
+    />
+  ) : (
+    <CommentComposer
+      {...props}
+      body={body}
+      onChange={onChange}
+      onPost={() => void onPost(body)}
+      onCancel={onClose}
+    />
+  )
+}

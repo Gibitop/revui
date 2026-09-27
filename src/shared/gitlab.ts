@@ -45,6 +45,15 @@ export type Position = {
   old_line?: number
   new_line?: number
 }
+export type GitLabSuggestion = {
+  id: number
+  from_line: number
+  to_line: number
+  from_content: string
+  to_content: string
+  applicable: boolean
+  applied: boolean
+}
 export type Discussion = {
   id: string
   individual_note: boolean
@@ -58,6 +67,7 @@ export type Discussion = {
     created_at?: string
     updated_at: string
     position?: Position
+    suggestions?: GitLabSuggestion[]
   }[]
 }
 export type Anchor = {

@@ -177,6 +177,19 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
                 system: false,
                 updated_at: new Date().toISOString(),
                 position: positions[index],
+                suggestions: body.includes('```suggestion')
+                  ? [
+                      {
+                        id: index + 1,
+                        from_line: 1,
+                        to_line: 1,
+                        from_content: 'export const value = 2\n',
+                        to_content: body.match(/```suggestion[^\n]*\n([\s\S]*?)```/)?.[1] ?? '',
+                        applicable: true,
+                        applied: false,
+                      },
+                    ]
+                  : [],
               },
               ...(replies.get(String(index)) ?? []).map((note) => ({
                 ...note,
@@ -342,10 +355,21 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
     await composer
       .getByRole('textbox', { name: 'GitLab comment', exact: true })
       .fill('Inline suggestion')
+    await composer.getByRole('button', { name: 'Local', exact: true }).click()
+    await expect(composer.getByRole('textbox', { name: 'Comment on file.ts' })).toHaveValue(
+      'Inline suggestion',
+    )
+    await composer.getByRole('button', { name: 'GitLab', exact: true }).click()
+    await expect(composer.getByRole('textbox', { name: 'GitLab comment' })).toHaveValue(
+      'Inline suggestion',
+    )
     await composer.getByRole('button', { name: 'Insert suggestion' }).click()
     await expect(
       composer.getByRole('textbox', { name: 'GitLab comment', exact: true }),
     ).toHaveValue('Inline suggestion\n\n```suggestion:-0+0\nexport const value = 2\n```')
+    await composer
+      .getByRole('textbox', { name: 'GitLab comment' })
+      .fill('Inline suggestion\n\n```suggestion:-0+0\nexport const value = 3\n```')
     await composer.getByRole('button', { name: 'Post now', exact: true }).click()
     await expect(composer).toBeHidden()
     await button.click()
@@ -364,6 +388,10 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
       'Inline suggestion',
     )
     const inlineDiscussion = file.getByRole('region', { name: 'GitLab discussion' })
+    const suggestionDiff = inlineDiscussion.locator('[data-suggestion-diff]')
+    await expect(suggestionDiff.locator('[data-change="removed"]')).toContainText('value = 2')
+    await expect(suggestionDiff.locator('[data-change="added"]')).toContainText('value = 3')
+
     await expect(inlineDiscussion).not.toContainText('file.ts:')
     const editBounds = await inlineDiscussion
       .getByRole('button', { name: 'Edit', exact: true })

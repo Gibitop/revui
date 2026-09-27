@@ -1,14 +1,21 @@
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
-import { useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Check, MessageSquare, Pencil, Trash2, Undo2, Upload, TextQuote, Bot } from 'lucide-react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { CommentMarkdown, type SuggestionSource } from './CommentMarkdown'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { CommentDate } from './CommentDate'
 import { commentPriority } from '../../shared/review'
+import type { GitLabSuggestion } from '../../shared/gitlab'
 
-type Message = { id: string; author: ReactNode; date: string; body: string; editable: boolean }
+type Message = {
+  id: string
+  author: ReactNode
+  date: string
+  body: string
+  editable: boolean
+  suggestions?: GitLabSuggestion[]
+}
 export function ThreadView({
   source,
   linkBase,
@@ -24,6 +31,7 @@ export function ThreadView({
   onAttach,
   uploadDisabledReason,
   loadSuggestion,
+  suggestionSource,
   details,
   error,
   reply,
@@ -41,6 +49,7 @@ export function ThreadView({
   onUpload?: (id: string) => Promise<unknown>
   onAttach?: () => void
   uploadDisabledReason?: string
+  suggestionSource?: SuggestionSource
   loadSuggestion?: () => Promise<{ contents: string; before?: number }>
   details?: ReactNode
   error?: string
@@ -297,54 +306,13 @@ export function ThreadView({
                 </div>
               </div>
             ) : (
-              <div className="markdown text-sm leading-[1.7] wrap-anywhere">
-                <Markdown
-                  remarkPlugins={[remarkGfm]}
-                  skipHtml
-                  components={{
-                    img: ({ alt }) => <span>{alt}</span>,
-                    code: ({ className, children }) => (
-                      <code className={className}>
-                        {className?.startsWith('language-suggestion') && (
-                          <span className="mb-2 block border-b pb-2 font-sans text-xs font-medium text-muted-foreground">
-                            Suggested change
-                          </span>
-                        )}
-                        {children}
-                      </code>
-                    ),
-                    a: ({ href, children }) => {
-                      let url: URL
-                      try {
-                        if (!href) return <span>{children}</span>
-                        url = new URL(href, linkBase)
-                        if (
-                          !['https:', 'http:'].includes(url.protocol) ||
-                          url.username ||
-                          url.password
-                        )
-                          return <span>{children}</span>
-                      } catch {
-                        return <span>{children}</span>
-                      }
-                      const open = (event: MouseEvent<HTMLAnchorElement>) => {
-                        event.preventDefault()
-                        if (event.type === 'auxclick' && event.button !== 1) return
-                        void window.desktop
-                          .openWebLink(url.href)
-                          .catch((error: Error) => setFailure(error.message))
-                      }
-                      return (
-                        <a href={url.href} onClick={open} onAuxClick={open}>
-                          {children}
-                        </a>
-                      )
-                    },
-                  }}
-                >
-                  {parsed.body}
-                </Markdown>
-              </div>
+              <CommentMarkdown
+                body={parsed.body}
+                linkBase={linkBase}
+                suggestions={message.suggestions}
+                suggestionSource={suggestionSource}
+                onError={setFailure}
+              />
             )}
           </div>
         )

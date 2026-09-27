@@ -52,7 +52,11 @@ export function optimisticGitLabReview(review: GitLabReview, request: GitLabRequ
       const note = next.discussions
         .find(({ id }) => id === request.discussion)
         ?.notes.find(({ id }) => id === request.note)
-      if (note) note.body = request.body
+      if (note) {
+        note.body = request.body
+        // Suggestion metadata belongs to the previous body until GitLab refreshes it.
+        delete note.suggestions
+      }
       break
     }
     case 'delete-note':

@@ -1,7 +1,7 @@
 import { useAIReview } from './AIReview'
 import { ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { LocalThread, ReviewAction, ReviewRecord } from '../../shared/review'
 import { CommentComposer } from './CommentComposer'
 import { ThreadView } from './ThreadView'
@@ -12,7 +12,7 @@ export function Thread({
   mutate,
   pending,
   current = false,
-  suggestion,
+  sourceContents,
   inOverlay = false,
   onNavigate,
 }: {
@@ -20,7 +20,7 @@ export function Thread({
   mutate: (action: ReviewAction) => Promise<ReviewRecord>
   pending: boolean
   current?: boolean
-  suggestion?: string
+  sourceContents?: string
   inOverlay?: boolean
   onNavigate?: () => void
 }) {
@@ -29,9 +29,26 @@ export function Thread({
   const [reply, setReply] = useState('')
   const [error, setError] = useState('')
   const review = gitlab?.review
+  const suggestionSource = useMemo(
+    () =>
+      current && sourceContents !== undefined
+        ? { contents: sourceContents, line: thread.end }
+        : undefined,
+    [current, sourceContents, thread.end],
+  )
+  const suggestion = useMemo(
+    () =>
+      suggestionSource?.contents
+        .split('\n')
+        .slice(thread.start - 1, thread.end)
+        .join('\n'),
+    [suggestionSource, thread.start, thread.end],
+  )
+
   return (
     <ThreadView
       source="Local"
+      suggestionSource={suggestionSource}
       label={`Thread at ${thread.side} line ${thread.start}`}
       messages={thread.messages.map((message) => ({
         id: message.id,

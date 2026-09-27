@@ -190,6 +190,73 @@ textarea {
   font-size: inherit;
   background: var(--muted);
 }
+.markdown .hljs-keyword,
+.markdown .hljs-selector-tag,
+.markdown .hljs-doctag {
+  color: light-dark(#a626a4, #c792ea);
+}
+.markdown .hljs-string,
+.markdown .hljs-regexp,
+.markdown .hljs-addition,
+.markdown .hljs-meta .hljs-string {
+  color: light-dark(#397300, #a3d977);
+}
+.markdown .hljs-number,
+.markdown .hljs-literal,
+.markdown .hljs-symbol,
+.markdown .hljs-bullet {
+  color: light-dark(#986801, #f5c26b);
+}
+.markdown .hljs-title,
+.markdown .hljs-section,
+.markdown .hljs-selector-id {
+  color: light-dark(#0969a2, #82aaff);
+}
+.markdown .hljs-built_in,
+.markdown .hljs-type,
+.markdown .hljs-attr,
+.markdown .hljs-attribute,
+.markdown .hljs-meta {
+  color: light-dark(#007c85, #89ddff);
+}
+.markdown .hljs-name,
+.markdown .hljs-variable,
+.markdown .hljs-template-variable,
+.markdown .hljs-deletion,
+.markdown .hljs-selector-class {
+  color: light-dark(#b42334, #f07178);
+}
+.markdown .hljs-comment,
+.markdown .hljs-quote {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.markdown .hljs-emphasis {
+  font-style: italic;
+}
+.markdown .hljs-strong {
+  font-weight: bold;
+}
+.markdown .hljs-link {
+  text-decoration: underline;
+}
+.markdown .suggestion-line {
+  display: block;
+  min-height: 1lh;
+}
+.markdown .suggestion-line[data-change='removed'] {
+  background: color-mix(in srgb, var(--git-deleted) 12%, transparent);
+  color: var(--git-deleted);
+}
+.markdown .suggestion-line[data-change='added'] {
+  background: color-mix(in srgb, var(--git-added) 12%, transparent);
+  color: var(--git-added);
+}
+.markdown .suggestion-sign {
+  display: inline-block;
+  width: 2ch;
+  user-select: none;
+}
 .markdown blockquote {
   border-left: 2px solid var(--border);
   padding-left: 10px;
