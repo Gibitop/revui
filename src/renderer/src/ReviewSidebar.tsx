@@ -10,8 +10,8 @@ import {
 } from '@pierre/trees'
 import { FileTree, useFileTree, useFileTreeSelector } from '@pierre/trees/react'
 import {
-  ArrowLeft,
-  ArrowRight,
+  ArrowUp,
+  ArrowDown,
   Check,
   Filter,
   Files,
@@ -262,7 +262,7 @@ export function ReviewSidebar({
                 disabled={!canNavigate}
                 onClick={() => navigate(-1)}
               >
-                <ArrowLeft className="size-3.5" />
+                <ArrowUp className="size-3.5" />
               </Button>
               <Button
                 variant="ghost"
@@ -273,7 +273,7 @@ export function ReviewSidebar({
                 disabled={!canNavigate}
                 onClick={() => navigate(1)}
               >
-                <ArrowRight className="size-3.5" />
+                <ArrowDown className="size-3.5" />
               </Button>
             </div>
           </div>

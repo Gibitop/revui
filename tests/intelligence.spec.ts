@@ -68,6 +68,16 @@ test('type hovers and modifier navigation work in split, unified and unchanged f
   const application = await electron.launch({ args: ['.'], env })
   try {
     const page = await application.firstWindow()
+    await page.evaluate(() => {
+      const state = window as typeof window & { reviewWorkers: number }
+      state.reviewWorkers = 0
+      window.Worker = new Proxy(window.Worker, {
+        construct(Target, args: ConstructorParameters<typeof Worker>) {
+          if (String(args[0]).includes('review.worker')) state.reviewWorkers++
+          return new Target(...args)
+        },
+      })
+    })
     await application.evaluate(({ dialog }, path) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })
     }, repository)
@@ -125,6 +135,7 @@ test('type hovers and modifier navigation work in split, unified and unchanged f
         (layout) =>
           window.desktop.updatePreferences({
             diffLayout: layout,
+            reviewLayout: layout === 'split' ? 'continuous' : 'focused',
             theme: layout === 'split' ? 'light' : 'dark',
           }),
         layout,
@@ -303,10 +314,44 @@ test('type hovers and modifier navigation work in split, unified and unchanged f
       await page.mouse.move(importPoint.x, importPoint.y)
       await expect.poll(() => page.locator('[data-code-link]').count()).toBeGreaterThan(0)
       await expect(imported).toHaveCSS('cursor', 'pointer')
+      await main.evaluate((element) => element.setAttribute('data-navigation-retained', 'true'))
+      const workersBeforeNavigation = await page.evaluate(
+        () => (window as typeof window & { reviewWorkers: number }).reviewWorkers,
+      )
       await page.mouse.click(importPoint.x, importPoint.y)
       await page.keyboard.up(modifier)
       const model = page.getByRole('article', { name: 'model.ts', exact: true })
       await expect(model).toBeVisible()
+      await expect(main).toBeHidden()
+      expect(
+        await page.getByTestId('diff-scroll').evaluate((pane) => {
+          const review = pane.closest('section[aria-label="Code review"]')!
+          return pane.getBoundingClientRect().right <= review.getBoundingClientRect().right + 1
+        }),
+      ).toBe(true)
+      await expect(page.getByTestId('diff-scroll').getByRole('article')).toHaveCount(1)
+      for (const key of ['Control', 'Meta']) {
+        await page.keyboard.press(`${key}+[`)
+        await expect(model).toHaveCount(0)
+        await expect(imported).toBeVisible()
+        await expect(main).toHaveAttribute('data-navigation-retained', 'true')
+        expect(
+          await main.evaluate((file) => {
+            const review = file.closest('section[aria-label="Code review"]')!
+            return file.getBoundingClientRect().right <= review.getBoundingClientRect().right + 1
+          }),
+        ).toBe(true)
+        await page.keyboard.press(`${key}+]`)
+        await expect(model).toBeVisible()
+        // Forward at the end of the history is a no-op.
+        await page.keyboard.press(`${key}+]`)
+        await expect(model).toBeVisible()
+      }
+      expect(
+        await page.evaluate(
+          () => (window as typeof window & { reviewWorkers: number }).reviewWorkers,
+        ),
+      ).toBe(workersBeforeNavigation)
       const declaration = model.locator('[data-code] [data-line="1"]')
       await declaration.hover()
       await page.mouse.move(
@@ -325,6 +370,17 @@ test('type hovers and modifier navigation work in split, unified and unchanged f
       await expect(locations).toContainText('main.ts:3:')
       await locations.getByRole('button', { name: /main.ts:3:/ }).click()
       await expect(main).toBeVisible()
+      await page.keyboard.press(`${modifier}+[`)
+      await expect(model).toBeVisible()
+      // The declaration's original location and the clicked reference source are one visit.
+      await page.keyboard.press(`${modifier}+[`)
+      await expect(model).toHaveCount(0)
+      await expect(imported).toBeVisible()
+      await page.keyboard.press(`${modifier}+]`)
+      await expect(model).toBeVisible()
+      await page.keyboard.press(`${modifier}+]`)
+      await expect(model).toHaveCount(0)
+      await expect(answer).toBeVisible()
       await answer.hover()
       await page.keyboard.down(modifier)
       await page.mouse.click(

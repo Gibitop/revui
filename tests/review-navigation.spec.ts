@@ -122,10 +122,10 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     await page.getByRole('treeitem', { name: /long.ts/ }).click()
     await expect(file.getByText(/\d+ unmodified lines/)).toHaveCount(0)
     for (const shortcut of [
-      'Control+ArrowRight',
-      'Meta+ArrowRight',
-      'Control+ArrowLeft',
-      'Meta+ArrowLeft',
+      'Control+ArrowDown',
+      'Meta+ArrowDown',
+      'Control+ArrowUp',
+      'Meta+ArrowUp',
     ]) {
       await page.locator('[data-testid="diff-scroll"] > div').evaluate((node) => {
         node.scrollTop = 0
@@ -156,7 +156,7 @@ test('long-file thread navigation stays inside the review pane; native copy and 
       if (action === 'select') await page.getByRole('treeitem', { name: /long.ts/ }).click()
       else if (action === 'keyboard') {
         await page.getByRole('button', { name: 'Next thread', exact: true }).focus()
-        await page.keyboard.press('ArrowRight')
+        await page.keyboard.press('ArrowDown')
       } else
         await page
           .getByRole('button', {
@@ -331,17 +331,36 @@ test('file-tree navigation stays aligned as distant diffs load and yields to man
       await expect(selectedItems).toHaveAccessibleName(path)
     }
     for (const [shortcut, path] of [
-      ['ArrowRight', 'file-01.ts'],
-      ['ArrowRight', 'file-02.ts'],
-      ['ArrowLeft', 'file-01.ts'],
-      ['ArrowLeft', 'file-00.ts'],
+      ['ArrowDown', 'file-01.ts'],
+      ['ArrowDown', 'file-02.ts'],
+      ['ArrowUp', 'file-01.ts'],
+      ['ArrowUp', 'file-00.ts'],
     ]) {
+      await selectedItems.focus()
       await page.keyboard.press(shortcut)
       await expect(selectedItems).toHaveCount(1)
       await expect(selectedItems).toHaveAccessibleName(path)
     }
+    const diffButton = page
+      .getByRole('article', { name: 'file-00.ts', exact: true })
+      .getByRole('checkbox')
+    await diffButton.focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(selectedItems).toHaveAccessibleName('file-01.ts')
+    await page.keyboard.press('ArrowUp')
+    await expect(selectedItems).toHaveAccessibleName('file-00.ts')
+    await page.getByRole('button', { name: 'File view', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Flat list', exact: true }).click()
+    const list = page.getByRole('list', { name: 'File list' })
+    await list.locator('[aria-current="true"]').focus()
+    await page.keyboard.press('ArrowDown')
+    await expect(list.locator('[aria-current="true"]')).toHaveAttribute('title', 'file-01.ts')
+    await page.keyboard.press('ArrowUp')
+    await expect(list.locator('[aria-current="true"]')).toHaveAttribute('title', 'file-00.ts')
+    await page.getByRole('button', { name: 'File view', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Tree view', exact: true }).click()
     await page.getByLabel('Search files', { exact: true }).focus()
-    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('ArrowDown')
     await expect(selectedItems).toHaveAccessibleName('file-00.ts')
     await page.getByRole('treeitem', { name: /file-15.ts/ }).click()
     await expect(selectedItems).toHaveCount(1)

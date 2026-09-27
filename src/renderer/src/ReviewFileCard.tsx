@@ -18,6 +18,7 @@ import {
 import { ArrowRight, ChevronDown, ChevronRight, Copy, Check, CircleAlert } from 'lucide-react'
 import type {
   ContentMatch,
+  FileContent,
   LocalThread,
   ReviewAction,
   ReviewRecord,
@@ -28,6 +29,10 @@ import ReviewWorker from './review.worker?worker'
 import { Button } from '@/components/ui/button'
 import { Thread } from './Thread'
 import { gitStatuses } from './ReviewSidebar'
+
+// Query-owned contents keep parsed diffs alive across navigation, without retaining old reviews.
+const parsedDiffs = new WeakMap<FileContent, FileDiffMetadata>()
+
 const codeCSS =
   ':host { --diffs-font-family: "Geist Mono Variable", monospace; --diffs-font-size: 13px; --diffs-line-height: 20px; } [data-thread-range]:not([data-selected-line]) { background-color: color-mix(in srgb, #3b82f6 14%, transparent); box-shadow: inset 2px 0 #3b82f6; }'
 
@@ -48,7 +53,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   intelligenceReady,
   onNavigate,
 }: {
-  onNavigate: (location: CodeLocation) => void
+  onNavigate: (location: CodeLocation, origin: CodeLocation) => void
   workspaceId: string | null
   workspaceReady: boolean
   intelligenceReady: boolean
@@ -62,7 +67,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   headerFlash: number
   threadFocus: string | null
   threadVisit: number
-  searchHit: (ContentMatch & { key: number }) | null
+  searchHit: (ContentMatch & { key: number; codeNavigation?: boolean }) | null
 }) {
   const gitlab = useGitLab()
   const virtualizer = useVirtualizer()
@@ -153,18 +158,26 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   useEffect(() => {
     if (pendingReviewed !== null && pendingReviewed === reviewed) setPendingReviewed(null)
   }, [pendingReviewed, reviewed])
-  const [diff, setDiff] = useState<FileDiffMetadata | null>(null)
+  const [diff, setDiff] = useState<FileDiffMetadata | null>(() =>
+    content.data ? (parsedDiffs.get(content.data) ?? null) : null,
+  )
   const [parseError, setParseError] = useState('')
   useEffect(() => {
-    setDiff(null)
+    const cached = content.data && parsedDiffs.get(content.data)
+    setDiff(cached ?? null)
     setParseError('')
     if (!metadata || !content.data || (!content.data.oldFile && !content.data.newFile)) return
+    if (cached) return
+    const fileContent = content.data
     let current = true
     const worker = new ReviewWorker()
     worker.onmessage = (event) => {
       if (!current) return
       if (event.data.error) setParseError(event.data.error)
-      else setDiff(event.data.result)
+      else {
+        parsedDiffs.set(fileContent, event.data.result)
+        setDiff(event.data.result)
+      }
       worker.terminate()
     }
     worker.onerror = (event) => {
@@ -310,7 +323,13 @@ export const ReviewFileCard = memo(function ReviewFileCard({
     },
     unsafeCSS: codeCSS,
     expandUnchanged:
-      !!anchor ||
+      (!!anchor &&
+        (!searchHit?.codeNavigation ||
+          !diff?.hunks.some(
+            (hunk) =>
+              anchor.line >= hunk.additionStart &&
+              anchor.line < hunk.additionStart + hunk.additionCount,
+          ))) ||
       annotations.some(({ metadata }) =>
         metadata === 'composer'
           ? true
@@ -746,7 +765,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
           snapshot={snapshot.id}
           workspace={workspaceId}
           path={path}
-          contents={content.data?.newFile?.contents}
+          file={content.data?.newFile}
           files={snapshot.files}
           theme={theme}
           onNavigate={onNavigate}

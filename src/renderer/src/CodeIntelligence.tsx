@@ -12,8 +12,10 @@ import { createPortal } from 'react-dom'
 import { File } from 'lucide-react'
 import { getSharedHighlighter, type SupportedLanguages, type ThemedToken } from '@pierre/diffs'
 import type { CodeLocation, IntelligenceResult } from '../../shared/intelligence'
-import type { ReviewFile } from '../../shared/review'
+import type { FileContent, ReviewFile } from '../../shared/review'
 import { gitStatuses } from './ReviewSidebar'
+
+const commentRanges = new WeakMap<NonNullable<FileContent['newFile']>, [number, number][][]>()
 
 const navigationKeywords = new Set(
   `abstract accessor any as asserts async await bigint boolean break case catch class const
@@ -168,7 +170,7 @@ export function CodeIntelligence({
   snapshot,
   workspace,
   path,
-  contents,
+  file,
   files,
   theme,
   onNavigate,
@@ -177,16 +179,16 @@ export function CodeIntelligence({
   snapshot: string
   workspace: string | null
   path: string
-  contents?: string
+  file?: FileContent['newFile']
   files: ReviewFile[]
   theme: 'light' | 'dark'
-  onNavigate: (location: CodeLocation) => void
+  onNavigate: (location: CodeLocation, origin: CodeLocation) => void
 }) {
   const dismiss = useRef(() => {})
   const popupInteraction = useRef({ enter: () => {}, leave: () => {} })
   const popupElement = useRef<HTMLDivElement>(null)
   const [popup, setPopup] = useState<
-    ({ x: number; y: number; message?: string } & IntelligenceResult) | null
+    ({ x: number; y: number; message?: string; origin: CodeLocation } & IntelligenceResult) | null
   >(null)
   useLayoutEffect(() => {
     const element = popupElement.current
@@ -207,9 +209,9 @@ export function CodeIntelligence({
   }, [popup])
   useEffect(() => {
     const element = root.current
-    if (!element || contents === undefined || !/\.[cm]?[jt]sx?$/.test(path)) return
+    if (!element || !file || !/\.[cm]?[jt]sx?$/.test(path)) return
     let disposed = false
-    let comments: [number, number][][] | undefined
+    let comments = commentRanges.get(file)
     const lang = path.endsWith('tsx')
       ? 'tsx'
       : path.endsWith('jsx')
@@ -219,35 +221,37 @@ export function CodeIntelligence({
           : 'javascript'
     // Tokenize the complete target file once so hidden lines and multiline comments
     // keep their grammar context. Pointer movement only checks cached ranges.
-    void getSharedHighlighter({
-      themes: ['pierre-dark'],
-      langs: [lang],
-      preferredHighlighter: 'shiki-js',
-    })
-      .then((highlighter) => {
-        if (disposed) return
-        const { tokens } = highlighter.codeToTokens(contents, {
-          lang,
-          theme: 'pierre-dark',
-          includeExplanation: 'scopeName',
-        })
-        comments = tokens.map((tokens) => {
-          const ranges: [number, number][] = []
-          let offset = 0
-          for (const token of tokens) {
-            for (const part of token.explanation ?? []) {
-              if (part.scopes.some(({ scopeName }) => scopeName.startsWith('comment.')))
-                ranges.push([offset, offset + part.content.length])
-              offset += part.content.length
+    if (!comments)
+      void getSharedHighlighter({
+        themes: ['pierre-dark'],
+        langs: [lang],
+        preferredHighlighter: 'shiki-js',
+      })
+        .then((highlighter) => {
+          if (disposed) return
+          const { tokens } = highlighter.codeToTokens(file.contents, {
+            lang,
+            theme: 'pierre-dark',
+            includeExplanation: 'scopeName',
+          })
+          comments = tokens.map((tokens) => {
+            const ranges: [number, number][] = []
+            let offset = 0
+            for (const token of tokens) {
+              for (const part of token.explanation ?? []) {
+                if (part.scopes.some(({ scopeName }) => scopeName.startsWith('comment.')))
+                  ranges.push([offset, offset + part.content.length])
+                offset += part.content.length
+              }
+              if (!token.explanation) offset += token.content.length
             }
-            if (!token.explanation) offset += token.content.length
-          }
-          return ranges
+            return ranges
+          })
+          commentRanges.set(file, comments)
         })
-      })
-      .catch(() => {
-        // Leave navigation disabled if lexical classification is unavailable.
-      })
+        .catch(() => {
+          // Leave navigation disabled if lexical classification is unavailable.
+        })
     type Pointer = { position: NonNullable<ReturnType<typeof codePosition>>; x: number; y: number }
     let pointer: Pointer | null = null
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -386,13 +390,14 @@ export function CodeIntelligence({
           }
           if (kind === 'definition' && result.locations.length === 1) {
             clear()
-            onNavigate(result.locations[0])
+            onNavigate(result.locations[0], { path, line: line + 1, character })
             return
           }
           pinned = kind !== 'hover' && result.locations.length > 0
           setPopup({
             ...point,
             ...result,
+            origin: { path, line: line + 1, character },
             message:
               kind !== 'hover' && !result.locations.length
                 ? 'No locations found in this review.'
@@ -405,7 +410,13 @@ export function CodeIntelligence({
             error instanceof Error
               ? error.message.replace(/^Error invoking remote method '[^']+': Error: /, '')
               : String(error)
-          setPopup({ ...point, hover: '', locations: [], message })
+          setPopup({
+            ...point,
+            hover: '',
+            locations: [],
+            message,
+            origin: { path, line: line + 1, character },
+          })
         }
       }
       if (kind === 'hover') timer = setTimeout(() => void run(), 450)
@@ -517,7 +528,7 @@ export function CodeIntelligence({
       window.removeEventListener('pointerdown', outside, true)
       window.removeEventListener('click', outside, true)
     }
-  }, [root, snapshot, workspace, path, contents, onNavigate])
+  }, [root, snapshot, workspace, path, file, onNavigate])
   if (!popup) return null
   return createPortal(
     <div
@@ -568,7 +579,7 @@ export function CodeIntelligence({
                 className="flex items-baseline gap-2 rounded p-1 text-left font-mono hover:bg-accent focus:bg-accent data-[git-status=added]:text-git-added data-[git-status=untracked]:text-git-added data-[git-status=deleted]:text-git-deleted data-[git-status=modified]:text-git-modified data-[git-status=renamed]:text-git-renamed data-[git-status=conflicted]:text-git-conflicted"
                 onClick={() => {
                   dismiss.current()
-                  onNavigate(location)
+                  onNavigate(location, popup.origin)
                 }}
               >
                 <span

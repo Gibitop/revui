@@ -1,4 +1,5 @@
 import { AIReviewProvider, AIReviewButton } from './AIReview'
+import type { CodeLocation } from '../../shared/intelligence'
 import type { AIState } from '../../shared/ai'
 import type { GitLabReview } from '../../shared/gitlab'
 import { GitLabProvider, GitLabButton } from './GitLab'
@@ -98,7 +99,9 @@ function ReviewSession({
   const [gitlabReview, setGitlabReview] = useState<GitLabReview>()
   const [initialComparison] = useState(initial)
   const [controls, setControls] = useState({ comparison: initial, version: 0 })
-  const [searchHit, setSearchHit] = useState<(ContentMatch & { key: number }) | null>(null)
+  const [searchHit, setSearchHit] = useState<
+    (ContentMatch & { key: number; codeNavigation?: boolean }) | null
+  >(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const contentSearchRef = useRef<HTMLInputElement>(null)
 
@@ -173,6 +176,7 @@ function ReviewSession({
   }, [initialComparison, openComparison, queryClient])
   const comparisonChange = useRef(0)
   const [selected, setSelected] = useState('')
+  const [codeReviewSource, setCodeReviewSource] = useState('')
   const [headerFlash, setHeaderFlash] = useState({ path: '', visit: 0 })
   const diffScrollRef = useRef<HTMLDivElement>(null)
   const [activeWorkspace, setActiveWorkspace] = useState<string | null>(null)
@@ -190,6 +194,10 @@ function ReviewSession({
   const [search, setSearch] = useState('')
   const [threadVisit, setThreadVisit] = useState(0)
   const [threadFocus, setThreadFocus] = useState<string | null>(null)
+  const codeHistory = useRef<{ locations: CodeLocation[]; index: number }>({
+    locations: [],
+    index: -1,
+  })
   const searchRef = useRef<HTMLInputElement>(null)
   const focusFileSearch = useRef(false)
   useEffect(() => {
@@ -205,6 +213,7 @@ function ReviewSession({
     retry: false,
   })
   useEffect(() => {
+    codeHistory.current = { locations: [], index: -1 }
     setFileOrder('fs')
     setSelected(snapshot.data?.files[0]?.path ?? '')
     setActiveWorkspace(null)
@@ -424,6 +433,21 @@ function ReviewSession({
     )
       return
     if (
+      (event.metaKey || event.ctrlKey) &&
+      !event.altKey &&
+      !event.shiftKey &&
+      (event.key === '[' || event.key === ']')
+    ) {
+      event.preventDefault()
+      const history = codeHistory.current
+      const index = history.index + (event.key === '[' ? -1 : 1)
+      if (index >= 0 && index < history.locations.length) {
+        history.index = index
+        navigateCode(history.locations[index])
+      }
+      return
+    }
+    if (
       event.shiftKey &&
       !event.metaKey &&
       !event.ctrlKey &&
@@ -437,10 +461,10 @@ function ReviewSession({
     if (
       !event.altKey &&
       !event.shiftKey &&
-      (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+      (event.key === 'ArrowUp' || event.key === 'ArrowDown')
     ) {
       event.preventDefault()
-      navigate(event.key === 'ArrowRight' ? 1 : -1, event.metaKey || event.ctrlKey)
+      navigate(event.key === 'ArrowDown' ? 1 : -1, event.metaKey || event.ctrlKey)
     }
     if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
@@ -449,34 +473,64 @@ function ReviewSession({
   })
   useEffect(() => {
     const key = (event: KeyboardEvent) => onReviewKey(event)
+    const captureNavigation = (event: KeyboardEvent) => {
+      if (
+        (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
+        event.target instanceof HTMLElement &&
+        event.target.closest('.file-tree, .flat-file-list, [data-testid="diff-scroll"]')
+      ) {
+        // Handle navigation before the tree or diff consumes the arrow key.
+        onReviewKey(event)
+        if (event.defaultPrevented) event.stopPropagation()
+      }
+    }
+    window.addEventListener('keydown', captureNavigation, true)
     window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
+    return () => {
+      window.removeEventListener('keydown', captureNavigation, true)
+      window.removeEventListener('keydown', key)
+    }
   }, [])
 
   const navigateCode = useCallback(
-    (location: { path: string; line: number; character: number }) => {
+    (location: CodeLocation, origin?: CodeLocation) => {
+      if (origin) {
+        if (filesByPath.has(origin.path)) setCodeReviewSource(origin.path)
+        const history = codeHistory.current
+        history.locations.splice(history.index + 1)
+        const current = history.locations[history.index]
+        // Moving within the current file updates its return position; it is not another jump.
+        if (current?.path === origin.path) history.locations[history.index] = origin
+        else history.locations.push(origin)
+        history.locations.push(location)
+        history.index = history.locations.length - 1
+      }
       setScrollTarget(null)
       setSelected(location.path)
       setThreadFocus(null)
       setSearchHit({
         path: location.path,
         line: location.line,
+        codeNavigation: true,
         text: '',
         ranges: [],
         key: Date.now(),
       })
     },
-    [],
+    [filesByPath],
   )
 
+  const codeDestination =
+    searchHit?.codeNavigation && !paths.includes(searchHit.path) ? searchHit.path : null
   const threadFocused = !!threadFocus && !paths.includes(selected)
+  const reviewPath = codeDestination ? codeReviewSource : selected
   const visiblePaths =
     settings.reviewLayout === 'focused' ||
     threadFocused ||
-    (!!searchHit && !paths.includes(searchHit.path)) ||
+    (!!searchHit && !searchHit.codeNavigation && !paths.includes(searchHit.path)) ||
     (!filesByPath.has(selected) && !threadFocus && !searchHit)
-      ? selected
-        ? [selected]
+      ? reviewPath
+        ? [reviewPath]
         : []
       : paths.filter(
           (path) => filesByPath.has(path) || path === selected || path === searchHit?.path,
@@ -531,7 +585,7 @@ function ReviewSession({
   }, [scrollTarget, snapshot.data, paths, settings.reviewLayout, threadFocus, searchHit])
 
   const syncScrolledFile = useEffectEvent(() => {
-    if (scrollTarget || visiblePaths.length < 2) return
+    if (codeDestination || scrollTarget || visiblePaths.length < 2) return
     const scroll = diffScrollRef.current?.firstElementChild
     const content = scroll?.firstElementChild
     if (!scroll || !content) return
@@ -752,39 +806,60 @@ function ReviewSession({
                 </p>
               )}
 
-              <div ref={diffScrollRef} data-testid="diff-scroll" className="flex min-h-0 flex-1">
-                <Virtualizer className="min-h-0 flex-1 overflow-auto overscroll-contain">
-                  {snapshot.data &&
-                    visiblePaths.map((path) => (
-                      <ReviewFileCard
-                        key={`${snapshot.data!.id}:${path}`}
-                        onNavigate={navigateCode}
-                        workspaceId={activeWorkspace}
-                        intelligenceReady={
-                          workspaceStatus?.snapshot === snapshot.data!.id &&
-                          workspaceStatus.ready &&
-                          workspaceStatus.ideReady &&
-                          !workspaceStatus.busy
-                        }
-                        workspaceReady={
-                          workspaceStatus?.snapshot === snapshot.data!.id &&
-                          workspaceStatus.ideReady &&
-                          !workspaceStatus.busy
-                        }
-                        snapshot={snapshot.data!}
-                        path={path}
-                        record={records.data}
-                        metadata={filesByPath.get(path)}
-                        threads={threadsByPath.get(path) ?? emptyThreads}
-                        settings={fileSettings}
-                        theme={theme}
-                        headerFlash={headerFlash.path === path ? headerFlash.visit : 0}
-                        threadFocus={path === selected ? threadFocus : null}
-                        threadVisit={path === selected && threadFocus ? threadVisit : 0}
-                        searchHit={searchHit?.path === path ? searchHit : null}
-                      />
-                    ))}
-                </Virtualizer>
+              <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                {[
+                  { key: 'review', paths: visiblePaths },
+                  ...(codeDestination ? [{ key: 'destination', paths: [codeDestination] }] : []),
+                ].map((pane) => (
+                  <div
+                    key={pane.key}
+                    ref={pane.key === 'review' ? diffScrollRef : undefined}
+                    data-testid={
+                      pane.key === 'review' && codeDestination
+                        ? 'preserved-diff-scroll'
+                        : 'diff-scroll'
+                    }
+                    aria-hidden={pane.key === 'review' && !!codeDestination ? true : undefined}
+                    className={
+                      pane.key === 'destination'
+                        ? 'absolute inset-0 flex min-h-0 min-w-0'
+                        : `flex min-h-0 min-w-0 flex-1 ${codeDestination ? 'invisible' : ''}`
+                    }
+                  >
+                    <Virtualizer className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain">
+                      {snapshot.data &&
+                        pane.paths.map((path) => (
+                          <ReviewFileCard
+                            key={`${snapshot.data!.id}:${path}`}
+                            onNavigate={navigateCode}
+                            workspaceId={activeWorkspace}
+                            intelligenceReady={
+                              workspaceStatus?.snapshot === snapshot.data!.id &&
+                              workspaceStatus.ready &&
+                              workspaceStatus.ideReady &&
+                              !workspaceStatus.busy
+                            }
+                            workspaceReady={
+                              workspaceStatus?.snapshot === snapshot.data!.id &&
+                              workspaceStatus.ideReady &&
+                              !workspaceStatus.busy
+                            }
+                            snapshot={snapshot.data!}
+                            path={path}
+                            record={records.data}
+                            metadata={filesByPath.get(path)}
+                            threads={threadsByPath.get(path) ?? emptyThreads}
+                            settings={fileSettings}
+                            theme={theme}
+                            headerFlash={headerFlash.path === path ? headerFlash.visit : 0}
+                            threadFocus={path === selected ? threadFocus : null}
+                            threadVisit={path === selected && threadFocus ? threadVisit : 0}
+                            searchHit={searchHit?.path === path ? searchHit : null}
+                          />
+                        ))}
+                    </Virtualizer>
+                  </div>
+                ))}
               </div>
             </section>
           </AIReviewProvider>
