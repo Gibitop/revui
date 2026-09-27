@@ -566,8 +566,19 @@ export class ReviewService {
       digest(index) !== active.indexDigest
     )
       throw new Error(
-        'Local changes differ from this snapshot. Compare again before using AI results.',
+        'Local changes differ from this snapshot. Compare again before using this review.',
       )
+    // Git's raw working-tree diff uses zero object IDs: editing an already
+    // modified dependency can leave that metadata unchanged.
+    for (const [path, stamp] of active.stamps) {
+      const stat = await lstat(join(snapshot.repository, path)).catch((error) => {
+        if (error.code !== 'ENOENT') throw error
+        return null
+      })
+      const current = stat ? `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}` : 'missing'
+      if (current !== stamp)
+        throw new Error('File changed since this comparison was opened. Refresh this review.')
+    }
     this.get(id)
   }
 

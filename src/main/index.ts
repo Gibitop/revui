@@ -1,3 +1,4 @@
+import { IntelligenceService } from './intelligence'
 import { registerAIIPC } from './ai-ipc'
 import { registerGitLabIPC } from './gitlab-ipc'
 import { registerWorkspaceIPC } from './workspace-ipc'
@@ -238,6 +239,7 @@ if (!app.requestSingleInstanceLock()) {
         channels.openComparison,
         (event, repository: unknown, comparison: unknown, requestId: unknown, refresh: unknown) => {
           assertSender(event)
+          intelligence.close()
           ai.close()
           return reviews.open(
             repositoryPath(repository),
@@ -289,6 +291,22 @@ if (!app.requestSingleInstanceLock()) {
         assertSender,
         () => window,
       )
+      const intelligence = new IntelligenceService(reviews, workspaceTools.workspaces)
+      ipcMain.handle(channels.intelligence, (event, value: unknown) => {
+        assertSender(event)
+        return intelligence.query(
+          z
+            .object({
+              snapshot: z.string().uuid(),
+              workspace: z.string().uuid().nullable(),
+              path: z.string().min(1).max(32768),
+              line: z.number().int().min(0).max(10000000),
+              character: z.number().int().min(0).max(10000000),
+              kind: z.enum(['hover', 'definition', 'references']),
+            })
+            .parse(value),
+        )
+      })
       const ai = registerAIIPC(
         app.getPath('userData'),
         reviews,
@@ -301,6 +319,7 @@ if (!app.requestSingleInstanceLock()) {
         () => settings.get().aiProviders,
       )
       app.on('before-quit', () => {
+        intelligence.close()
         ai.close()
         workspaceTools.stopScripts()
       })
@@ -331,6 +350,7 @@ if (!app.requestSingleInstanceLock()) {
                   quitting = false
                   return
                 }
+              intelligence.close()
               await ai.close()
               await ai.flush()
               allowed = true

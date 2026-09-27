@@ -1,3 +1,5 @@
+import { CodeIntelligence } from './CodeIntelligence'
+import type { CodeLocation } from '../../shared/intelligence'
 import { useGitLab, GitLabComposer, GitLabDiscussion } from './GitLab'
 import type { Discussion } from '../../shared/gitlab'
 import { IDEButton } from './IDEButton'
@@ -43,9 +45,13 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   searchHit,
   workspaceId,
   workspaceReady,
+  intelligenceReady,
+  onNavigate,
 }: {
+  onNavigate: (location: CodeLocation) => void
   workspaceId: string | null
   workspaceReady: boolean
+  intelligenceReady: boolean
   snapshot: Snapshot
   path: string
   record?: ReviewRecord
@@ -733,6 +739,18 @@ export const ReviewFileCard = memo(function ReviewFileCard({
         <p className="flex flex-wrap items-center gap-3 p-4" role="alert">
           {mutation.error.message}
         </p>
+      )}
+      {intelligenceReady && (
+        <CodeIntelligence
+          root={root}
+          snapshot={snapshot.id}
+          workspace={workspaceId}
+          path={path}
+          contents={content.data?.newFile?.contents}
+          files={snapshot.files}
+          theme={theme}
+          onNavigate={onNavigate}
+        />
       )}
     </article>
   )

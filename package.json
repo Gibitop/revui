@@ -48,6 +48,9 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "3.7.0",
+    "typescript-fallback": "npm:typescript@5.9.3",
+    "typescript-language-server": "^6.0.1",
+    "vscode-jsonrpc": "^9.0.3",
     "zod": "4.6.5"
   },
   "devDependencies": {

@@ -453,10 +453,27 @@ function ReviewSession({
     return () => window.removeEventListener('keydown', key)
   }, [])
 
+  const navigateCode = useCallback(
+    (location: { path: string; line: number; character: number }) => {
+      setScrollTarget(null)
+      setSelected(location.path)
+      setThreadFocus(null)
+      setSearchHit({
+        path: location.path,
+        line: location.line,
+        text: '',
+        ranges: [],
+        key: Date.now(),
+      })
+    },
+    [],
+  )
+
   const threadFocused = !!threadFocus && !paths.includes(selected)
   const visiblePaths =
     settings.reviewLayout === 'focused' ||
     threadFocused ||
+    (!!searchHit && !paths.includes(searchHit.path)) ||
     (!filesByPath.has(selected) && !threadFocus && !searchHit)
       ? selected
         ? [selected]
@@ -741,7 +758,14 @@ function ReviewSession({
                     visiblePaths.map((path) => (
                       <ReviewFileCard
                         key={`${snapshot.data!.id}:${path}`}
+                        onNavigate={navigateCode}
                         workspaceId={activeWorkspace}
+                        intelligenceReady={
+                          workspaceStatus?.snapshot === snapshot.data!.id &&
+                          workspaceStatus.ready &&
+                          workspaceStatus.ideReady &&
+                          !workspaceStatus.busy
+                        }
                         workspaceReady={
                           workspaceStatus?.snapshot === snapshot.data!.id &&
                           workspaceStatus.ideReady &&

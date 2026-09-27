@@ -145,21 +145,14 @@ Request structured review results and validate them against the snapshot before 
 
 Configure review sessions to read source and request approval for commands. Disable source-editing tools where supported. An approved command can still create artifacts or modify files; detect resulting changes and mark affected review results stale. If a harness cannot enforce the required permission behavior, disable command execution for that adapter.
 
-### TypeScript tooling and suggestions
+### TypeScript tooling
 
 Use `typescript-language-server` with the reviewed project’s TypeScript version when available and a bundled fallback. Support TS, TSX, JS, and JSX according to project configuration. [Language-server documentation](https://github.com/typescript-language-server/typescript-language-server)
 
-Initially provide semantic features on the reviewed/target side:
+Provide semantic features on the reviewed/target side:
 
 - Hover information and go to definition in diffs and full-file views.
 - Navigation into unchanged files in the same review workspace.
-- Completion and diagnostics in GitLab suggestions and editable AI code proposals.
-
-Use Monaco for editable suggestion blocks. Bind a suggestion to a file and replacement range, then apply it to an in-memory full-file document. Map completion edits and diagnostics back into the visible block without writing source files.
-
-Maintain a separate, lazily started suggestion language-server session so speculative edits do not change normal review hovers. Analyze one active suggestion overlay at a time. Changes outside the selected replacement range require an explicit expanded suggestion.
-
-AI snippets without a file/range binding receive syntax highlighting until attached to project context. Missing dependencies or generated files show a setup status rather than misleading diagnostic certainty.
 
 Base-side semantic navigation and other language servers are deferred.
 
@@ -167,20 +160,20 @@ Base-side semantic navigation and other language servers are deferred.
 
 | Milestone                      | Deliverable and completion criteria                                                                                                                                                                  |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **0. Foundation**              | Save `plan.md`; scaffold Electron/React/pnpm; establish IPC, settings, themes, and test tooling. Confirm startup on macOS and Windows.                                                               |
+| **0. Foundation**              | Save `plan.md`; scaffold Electron/React/pnpm; establish IPC, settings, themes, and test tooling. Confirm startup on macOS.                                                                           |
 | **1. Local review**            | Open/reopen repositories; implement all comparison modes, both layouts, tree filters, local threads, reviewed markers, and lazy diff loading. Usable offline without GitLab or AI installed.         |
 | **2. Workspace tools**         | Add worktree/in-place preparation, safe stash restoration, post-checkout scripts and IDE opening. Verify failure recovery before enabling GitLab-driven workspace preparation.                       |
 | **3. GitLab review**           | Add token setup, `origin` discovery, MR selection/metadata, all discussion workflows, suggestions, direct posting, refresh handling, and approval. A complete human MR review can happen in the app. |
 | **4. Codex review**            | Add chat, approvals, cancellation/resume, structured findings, publishing selected findings, and grouped walkthroughs. Results remain tied to the reviewed snapshot.                                 |
 | **5. OpenCode**                | Add the OpenCode v2 SDK adapter and run the same chat/review acceptance scenarios. Surface capability differences explicitly.                                                                        |
-| **6. TypeScript intelligence** | Add target-side hovers/definitions and contextual suggestion completion/diagnostics without source writes.                                                                                           |
-| **7. Team readiness**          | Complete monorepo benchmarks, accessibility and keyboard checks, recovery testing, onboarding documentation, and macOS/Windows setup verification.                                                   |
+| **6. TypeScript intelligence** | Add target-side hovers/definitions and navigation into unchanged files without source writes.                                                                                                        |
+| **7. Team readiness**          | Complete monorepo benchmarks, accessibility and keyboard checks, recovery testing, onboarding documentation, and macOS setup verification.                                                           |
 
 Each milestone ends with a usable application, relevant automated checks, and an updated `plan.md`. Performance work happens throughout rather than being postponed to milestone 7.
 
 ### Implementation status — September 24, 2026
 
-**Milestone 0: implemented and verified on macOS arm64; Windows verification pending CI.**
+**Milestone 0: implemented and verified on macOS arm64.**
 
 - [x] Electron Vite, React, TypeScript, pnpm, Tailwind, and shadcn-style UI primitives scaffolded.
 - [x] Typed preload API, main-process request validation, sandboxed renderer, navigation restrictions, and production CSP.
@@ -191,10 +184,10 @@ Each milestone ends with a usable application, relevant automated checks, and an
 - [x] Eight Vitest settings/Git tests, TypeScript checks, and production build pass locally.
 - [x] Playwright verifies Electron startup, theme changes, IPC restrictions, repository selection, and preferences/recent repositories across restart.
 - [x] Development startup (`pnpm run dev`) verified in the native macOS window, including the renderer/preload connection.
-- [x] Setup documentation and a macOS/Windows CI matrix added.
+- [x] Setup documentation and CI added.
 - [x] Clean pnpm frozen-lockfile installation verified; package scripts, CI, setup instructions, and the lockfile all use pnpm. Existing preference files remain readable after the UI simplification.
 
-**Milestone 1: implemented and verified on macOS arm64; Windows verification pending CI.**
+**Milestone 1: implemented and verified on macOS arm64.**
 
 - [x] Repository picker/reopening and persisted last comparison per repository.
 - [x] Direct and merge-base ref comparisons, staged, unstaged, all uncommitted, and selected commit → index/working tree. Refs resolve to immutable commits; index content is pinned by blob IDs.
@@ -210,7 +203,7 @@ Each milestone ends with a usable application, relevant automated checks, and an
 - [x] Comment composers use side-specific line annotations without redundant side/range fields. App-lifetime highlighting workers are verified in production and Vite development, including repository switching.
 - [x] Reviewed-revision content search covers commit/index/working-tree text, opens matching lines, validates mutable snapshots, and reports capped results explicitly.
 
-**Milestone 2: implemented and verified on macOS arm64; Windows verification pending CI.**
+**Milestone 2: implemented and verified on macOS arm64.**
 
 - [x] Explicit managed-worktree and in-place preparation for pinned target commits; local-change reviews use the existing checkout. Index reviews materialize an immutable, isolated index tree and reject stale index snapshots.
 - [x] Clean in-place checkout without a second confirmation; confirmation is required when tracked/untracked changes need stashing. Versioned, atomic workspace recovery records preserve the original branch/commit and exact stash identity across restarts, including interruption between stash creation and journal update.
@@ -221,7 +214,7 @@ Each milestone ends with a usable application, relevant automated checks, and an
 - [x] All 41 Vitest checks pass, including new coverage for dirty worktrees, ignored output, partially staged/untracked restoration, independent user stashes, restart/crash recovery, failed checkout, conflicting restoration, manual recovery, stale-index isolation, script output/failure/cancellation, command preferences, legacy-settings migration, IDE path validation, tag/commit identity matching, and staged checkout matching.
 - [x] TypeScript, Hooks lint, formatting, production build, and all eight enabled Playwright desktop tests pass locally. The desktop flow verifies preparation, setup output and retry, project/file IDE arguments, explicit cleanup in Settings, comparison-exit restoration, and matching-tag initialization. The opt-in benchmark is not rerun for this milestone.
 
-**Milestone 3: implemented and verified with API fixtures and Electron on macOS arm64. Live GitLab and Windows validation pending.**
+**Milestone 3: implemented and verified with API fixtures and Electron on macOS arm64. Live GitLab validation pending.**
 
 - [x] Settings → GitLab with instance URL, OS-encrypted personal access token, connection/version probe, optional PEM CA certificate, and explicit TLS-verification override. Tokens stay in the main process after submission.
 - [x] Origin discovery for HTTP(S), SSH and nested projects; explicit hostname/path mismatch and SSH-alias errors. Clone URLs may use a different scheme or port from the configured API endpoint. Preserve branch names separately from immutable comparison IDs. Paginated open-MR lookup matches New/source, Old/target, and source project; ambiguous matches offer selection.
@@ -233,7 +226,7 @@ Each milestone ends with a usable application, relevant automated checks, and an
 - [x] Focus-aware 60-second polling, focus/manual refresh, explicit new-revision banner and fetch/open action; revision and anchor validation before posting comments. Unaligned comparisons cannot approve or post inline.
 - [x] TypeScript, Hooks lint, formatting, production build, Vitest checks, and Playwright desktop tests pass. Coverage includes lookup pagination/project matching, branch identity, changed MR heads, renamed paths, permissions, direct multiline posting, uncertain posting outcomes, the overlay/spinner/red flash, automatic and stale lookup, inline suggestions, approvals and unresolved navigation. The opt-in benchmark was not rerun. Installed tool entry points were used directly because pnpm registry-signature verification was unavailable in the execution environment.
 
-**Milestone 4: implemented; protocol/service and Electron fixture verification on macOS arm64. Authenticated model-turn and Windows validation pending.**
+**Milestone 4: implemented; protocol/service and Electron fixture verification on macOS arm64. Authenticated model-turn validation pending.**
 
 - [x] Main-process Codex stdio adapter behind a small start/resume/send/cancel/approve harness interface, with protocol negotiation, actionable startup failures, streaming messages/tool activity, crash recovery, and persisted session identifiers. Uses installed authentication; tested local initialization and permission negotiation with Codex 0.146.0.
 - [x] Settings → AI Scenarios provides persisted model and supported reasoning-effort choices for chat, code review, and review order, discovered from Codex. Choices apply to new/resumed sessions and review-order cache keys. A preferred response language applies to all AI tasks.
@@ -244,18 +237,26 @@ Each milestone ends with a usable application, relevant automated checks, and an
 - [x] Versioned atomic AI persistence preserves unreadable records. Prompts contain comparison parameters and attachment references instead of diffs or file contents. Local anchor validation loads only files referenced by findings; explicit discussion attachments retain a 3 MiB request limit. Available MR metadata/discussions are supplied automatically in system instructions without fetched diffs.
 - [x] All 131 Vitest checks, all 13 enabled Playwright desktop tests, TypeScript, Hooks lint, formatting, and production build pass on macOS arm64. New fixtures cover streaming, approvals, denied edits, cancellation, resume, crashes, malformed/unanchored findings, stale generations, local conversion, persistence, walkthroughs, staged isolation, dirty historical workspaces, and unborn repositories. Additional fixtures verify parameter-only prompts, legacy-session migration, hidden order generation, cache reuse/invalidation, and malformed sections. Desktop coverage exercises chat, approvals, cancellation, automatic local AI comments, independent chat/background review, lazy review order, section-based next/previous navigation, response language, persisted panel resizing, Enter/Shift+Enter, and restart persistence.
 
-**Milestone 5: implemented and verified on macOS arm64; Windows validation pending.**
+**Milestone 5: implemented and verified on macOS arm64.**
 
 - [x] OpenCode v2 adapter using the official `@opencode/client` promise SDK with initialization/capability negotiation, installed authentication, models, session start/resume, streaming messages/tool activity, cancellation, failures, and manual tool approvals.
 - [x] Settings → AI Scenarios selects a provider before model/effort independently for chat, code review, and review order. Existing chats apply provider changes on the next message, starting a new provider session with conversation history as context; saved session IDs are never passed between providers. Review-order cache keys include provider selection.
 - [x] Settings → AI Providers has binary paths, automatic availability/model checks every five minutes, and preloaded reasoning choices for every model shared by all scenario selectors. Codex defaults and existing settings remain compatible.
 - [x] OpenCode v2 receives its review agent through an in-memory configuration overlay, preserving installed configuration and authentication. Older versions are rejected before starting a server. Read only denies shell/edit tools and exposes constrained, shell-free Git reads through a local authenticated MCP tool. Ask for approval and Full access retain the shared chat approval UI. Automatic approval review is explicitly unsupported; background tasks remain read-only.
 - [x] OpenCode JSON findings and walkthroughs use the existing snapshot/anchor validation, local comments, staleness handling, independent background sessions, and explicit GitLab publishing. Model JSON is requested and validated locally. OpenCode reasoning choices come directly from model metadata, with provider defaults otherwise.
-- [x] Real OpenCode 2.0.18 initialization, model discovery, restricted-agent selection, and an authenticated Git-inspection model turn verified on macOS. Windows validation remains pending.
+- [x] Real OpenCode 2.0.18 initialization, model discovery, restricted-agent selection, and an authenticated Git-inspection model turn verified on macOS.
 
 - [x] 155 deterministic Vitest checks, the OpenCode Playwright desktop flow, TypeScript, Hooks lint, formatting, and production build pass. The separate Codex desktop flow currently times out selecting a reasoning level; broader desktop validation is not fully green. Coverage includes provider routing/persistence/migration, SDK streaming, approvals and denial, cancellation, process failure, safe Git inspection, structured review/order, settings, and restart. Two opt-in live checks cover installed OpenCode startup/resume and an authenticated Git-inspection turn. Fixed the reproduced OpenCode 2.0.18 ACP catalogue startup race by using its authenticated local API for v2, waiting for agent discovery, and applying session permissions on create/resume. Model and reasoning metadata load directly without temporary discovery sessions. Native protocol regression tests cover delayed agents and MCP connections, missing agents, nested OpenRouter model IDs, streaming, approvals, cancellation, errors, and resume. Three consecutive live startup/resume checks selected Kimi K3, Opus 5.5, GPT-6 Astra, and DeepSeek V4 Flash through OpenRouter; a real DeepSeek Git-inspection turn also passed. No prompt is sent when agent selection fails. The SDK handles typed requests, errors, and SSE parsing; there is no legacy transport fallback. The opt-in benchmark was not rerun.
 
-**Next: milestone 6, TypeScript intelligence.** Monaco remains the planned suggestion editor.
+**Milestone 6: hover and navigation implemented — September 27, 2026.**
+
+- [x] Lazy, read-only `typescript-language-server` session for target-side TS/TSX/JS/JSX, using workspace TypeScript when compatible and bundled TypeScript 5.9 as fallback. Hover/navigation listeners are enabled only after workspace initialization succeeds, while the workspace matches the review and setup is idle. Workspace mismatches return an unavailable result without logging IPC errors. No source edits or automatic type-package downloads.
+- [x] Type/documentation hovers in split/unified diffs and full-file views. Ctrl/Cmd-click navigates to declarations and import files; clicking a declaration shows usages. Ctrl/Cmd-Shift-click explicitly finds references, with a location picker for multiple results and Escape to dismiss. Holding Ctrl/Cmd immediately underlines lexical token candidates and shows a pointer cursor without language-server requests. Navigation resolves on click and shows an error tooltip if no review destination exists.
+- [x] Navigation opens unchanged target files and reveals the destination line, including when excluded by the current tree filter. Base-side semantics and locations outside the review snapshot are not exposed.
+- [x] Matching-workspace and snapshot checks reject stale content and mismatched historical/index checkouts with setup/refresh guidance. Sessions restart on review changes and shut down with the window.
+- [x] Real-server fixtures cover aliases, TSX/JS, imports, references, unbuilt TypeScript project references, missing dependencies, historical worktrees, staged isolation, stale dependencies, unsafe paths, concurrent startup, cancellation, refresh, and unchanged source files. Electron interaction coverage verifies split/unified context-line mapping, modifier clicks, reference selection, and unchanged full-file navigation.
+- [x] The six real-server intelligence tests pass on macOS, including cross-project navigation without build output and local intelligence with an uninstalled dependency.
+- [x] Validation: 160 Vitest checks and six Electron intelligence/search/navigation checks pass on macOS, along with TypeScript, lint, formatting, and the production build. Two opt-in live-provider tests remain skipped.
 
 Implementation note: Electron Vite 5 currently requires Vite 5–7. Use Vite 7 with React plugin 5, rather than the incompatible latest Vite/React-plugin majors. Tests and scripts run with Node where required; Electron owns desktop runtime execution.
 
@@ -267,7 +268,7 @@ Implementation note: Electron Vite 5 currently requires Vite 5–7. Use Vite 7 w
 - **GitLab integration:** API fixtures for pagination, nested projects, outdated discussions, permission failures, changed MR heads, uncertain network outcomes, and direct posting. Validate against a designated test project before relying on production writes.
 - **Harness integration:** recorded protocol fixtures plus manual smoke tests with installed Codex/OpenCode; cover approval denial, cancellation, process crashes, resume, malformed findings, and changed snapshots.
 - **Language tooling:** project fixtures with imports, aliases, TSX, project references, missing dependencies, and replacement blocks that shift line numbers. Verify that source files remain unchanged.
-- **UI:** Vitest for meaningful state/domain behavior and Playwright Electron tests for critical review flows. Exercise both supported operating systems.
+- **UI:** Vitest for meaningful state/domain behavior and Playwright Electron tests for critical review flows.
 
 ### Performance targets
 

@@ -1,3 +1,4 @@
+import type { IntelligenceRequest, IntelligenceResult } from './intelligence'
 import type {
   AIProvider,
   ProviderSettings,
@@ -50,6 +51,7 @@ export type Bootstrap = {
 }
 
 export type DesktopAPI = {
+  intelligence: (request: IntelligenceRequest) => Promise<IntelligenceResult>
   aiModels: (provider?: AIProvider) => Promise<AIModel[]>
   ai: (request: AIRequest) => Promise<AIState>
   onAIChanged: (listener: (state: AIState) => void) => () => void
@@ -108,6 +110,7 @@ export type DesktopAPI = {
 }
 
 export const channels = {
+  intelligence: 'intelligence:query',
   ai: 'ai:request',
   aiModels: 'ai:models',
   aiChanged: 'ai:changed',

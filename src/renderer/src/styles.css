@@ -215,6 +215,29 @@ textarea {
   margin-top: 8px;
 }
 
+.code-tooltip pre {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.code-tooltip pre code {
+  background: transparent;
+}
+.code-tooltip > :first-child {
+  margin-top: 0;
+}
+.code-tooltip > pre + :not(hr) {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.code-tooltip > hr {
+  margin-block: 8px;
+  border-color: var(--border);
+}
+
 /* Chat Markdown needs its own typography after Tailwind's element reset. */
 .prose-review {
   min-width: 0;
