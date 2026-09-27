@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   FolderGit2,
@@ -77,7 +77,7 @@ export function App() {
     }
   }, [queryClient])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!data) return
     const theme = data.settings.theme === 'system' ? data.systemTheme : data.settings.theme
     document.documentElement.classList.toggle('dark', theme === 'dark')

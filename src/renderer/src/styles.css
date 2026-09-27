@@ -79,7 +79,8 @@
   /* Three text styles only: body, label (600), and code (monospace).
      All share 13px/20px, normal letter spacing, and sentence case. */
   body {
-    background: var(--background);
+    /* Let the native window's saved theme show until bootstrap applies the page theme. */
+    background: transparent;
     color: var(--foreground);
     font-family: var(--font-sans);
     font-size: 13px;
@@ -88,6 +89,9 @@
     letter-spacing: normal;
     text-transform: none;
     -webkit-font-smoothing: antialiased;
+  }
+  html[data-platform] body {
+    background: var(--background);
   }
   button,
   input,

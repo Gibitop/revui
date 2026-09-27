@@ -86,13 +86,15 @@ function updateWindowTheme(): void {
 }
 
 function createWindow(): void {
+  const theme = settings.get().theme
+  const dark = theme === 'dark' || (theme === 'system' && nativeTheme.shouldUseDarkColors)
   window = new BrowserWindow({
     width: 1380,
     height: 920,
     minWidth: 960,
     minHeight: 640,
     title: 'RevUI',
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#111111' : '#ffffff',
+    backgroundColor: dark ? '#111111' : '#ffffff',
     show: false,
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 17 } }
