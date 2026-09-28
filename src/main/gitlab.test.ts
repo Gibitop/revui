@@ -523,7 +523,9 @@ describe('GitLab review', () => {
       },
     )
     const review = await f.select()
-    expect(review.reviewApps?.map((app) => app.id)).toEqual([1, 7])
+    expect(f.requests.some(({ url }) => url.pathname.includes('/environments'))).toBe(false)
+    const apps = await f.service.handle({ kind: 'review-apps', session: review.session })
+    expect(apps.reviewApps?.map((app) => app.id)).toEqual([1, 7])
     await f.service.handle({ kind: 'open-app', session: review.session, environment: 1 })
     expect(f.opened).toEqual(['https://preview.example.com/app'])
     await f.service.handle({ kind: 'copy-app-link', session: review.session, environment: 1 })
@@ -533,8 +535,9 @@ describe('GitLab review', () => {
     ).rejects.toThrow('no longer available')
     f.deny('/environments')
     const refreshed = (await f.service.handle({ kind: 'refresh', session: review.session })).review!
-    expect(refreshed.reviewApps).toEqual([])
-    expect(refreshed.reviewAppsError).toContain('permission denied')
+    const unavailable = await f.service.handle({ kind: 'review-apps', session: review.session })
+    expect(unavailable.reviewApps).toEqual([])
+    expect(unavailable.reviewAppsError).toContain('permission denied')
     expect(refreshed.mr.iid).toBe(7)
   })
 
@@ -919,6 +922,90 @@ it('provides MR metadata and discussions to AI without exposing fetched diffs', 
 })
 
 describe('GitLab request scheduling', () => {
+  it('loads the MR in three request rounds without duplicate metadata or environment scans', async () => {
+    const f = await fixture()
+    await f.service.handle({ kind: 'lookup', snapshot: f.snapshot.id })
+    f.requests.length = 0
+    const fetcher = vi.mocked(f.fetcher)
+    const original = fetcher.getMockImplementation()!
+    vi.useFakeTimers()
+    fetcher.mockImplementation(async (...args) => {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return original(...args)
+    })
+    let loaded = false
+    const pending = f.service
+      .handle({ kind: 'select', snapshot: f.snapshot.id, iid: 7 })
+      .then((result) => {
+        loaded = true
+        return result
+      })
+    await vi.advanceTimersByTimeAsync(299)
+    expect(loaded).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(loaded).toBe(true)
+    const { review } = await pending
+    expect(review?.aligned).toBe(true)
+    expect(review?.approvalBlockedReason).toBeUndefined()
+    expect(f.requests.filter(({ url }) => url.pathname === '/api/v4/user')).toHaveLength(1)
+    expect(f.requests.filter(({ url }) => url.pathname.endsWith('/merge_requests/7'))).toHaveLength(
+      1,
+    )
+    expect(f.requests.some(({ url }) => url.pathname.includes('/environments'))).toBe(false)
+  })
+
+  it('allows MR refreshes to complete while review app discovery is slow', async () => {
+    const f = await fixture()
+    const review = await f.select()
+    const fetcher = vi.mocked(f.fetcher)
+    const original = fetcher.getMockImplementation()!
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    fetcher.mockImplementation(async (...args) => {
+      if (new URL(String(args[0])).pathname.endsWith('/environments')) await blocked
+      return original(...args)
+    })
+    const apps = f.service.handle({ kind: 'review-apps', session: review.session })
+    try {
+      const refreshed = await f.service.handle({ kind: 'refresh', session: review.session })
+      expect(refreshed.review?.mr.iid).toBe(7)
+    } finally {
+      release()
+      await apps
+    }
+  })
+
+  it('runs independent requests concurrently with at most four in flight', async () => {
+    const f = await fixture()
+    const fetcher = vi.mocked(f.fetcher)
+    fetcher.mockClear()
+    const releases: (() => void)[] = []
+    let active = 0
+    let peak = 0
+    fetcher.mockImplementation(async () => {
+      active++
+      peak = Math.max(peak, active)
+      await new Promise<void>((resolve) => releases.push(resolve))
+      active--
+      return new Response('{}')
+    })
+    const requests = Array.from({ length: 10 }, () => f.service['api']('user'))
+    expect(fetcher).toHaveBeenCalledTimes(4)
+    // Completing one response lets a queued request start while three remain blocked.
+    releases.shift()!()
+    await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(5))
+    while (fetcher.mock.calls.length < 10) {
+      releases.splice(0).forEach((release) => release())
+      await vi.waitFor(() => expect(releases.length).toBeGreaterThan(0))
+    }
+    releases.splice(0).forEach((release) => release())
+    await Promise.all(requests)
+    expect(peak).toBe(4)
+    expect(active).toBe(0)
+  })
+
   it('coalesces simultaneous refreshes but fetches again after completion', async () => {
     const f = await fixture()
     const review = await f.select()
@@ -967,14 +1054,20 @@ describe('GitLab request scheduling', () => {
     fetcher.mockClear()
     fetcher.mockResolvedValueOnce(new Response('Slow down', { status: 429, headers }))
     const first = f.service['api']('user')
+    // Requests already in flight cannot observe a response's cooldown yet.
+    await vi.advanceTimersByTimeAsync(0)
     const second = f.service['api']('version')
     await vi.advanceTimersByTimeAsync(1999)
     expect(fetcher).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(1)
     await Promise.all([first, second])
     expect(fetcher).toHaveBeenCalledTimes(3)
-    expect(String(fetcher.mock.calls[1][0])).toContain('/user?')
-    expect(String(fetcher.mock.calls[2][0])).toContain('/version?')
+    expect(
+      fetcher.mock.calls
+        .slice(1)
+        .map(([url]) => new URL(String(url)).pathname)
+        .sort(),
+    ).toEqual(['/api/v4/user', '/api/v4/version'])
     expect(fetcher.mock.calls[1][1]?.signal?.aborted).toBe(false)
   })
 
@@ -990,6 +1083,8 @@ describe('GitLab request scheduling', () => {
       }),
     )
     const first = f.service['api']('user')
+    // Requests already in flight cannot observe a response's cooldown yet.
+    await vi.advanceTimersByTimeAsync(0)
     const second = f.service['api']('version')
     await vi.advanceTimersByTimeAsync(1999)
     expect(fetcher).toHaveBeenCalledTimes(1)

@@ -41,6 +41,7 @@ import {
 } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { rehypeEmoji } from './rehypeEmoji'
 import type {
   Anchor,
   Discussion,
@@ -409,6 +410,7 @@ export function GitLabProvider({
   const [matches, setMatches] = useState<MR[]>([])
   const [loadedReview, setReview] = useState<GitLabReview>()
   const latestReview = useRef<GitLabReview>(undefined)
+  const lastRefresh = useRef(0)
   const [boundSnapshot, setBoundSnapshot] = useState(snapshot?.id)
   const review = boundSnapshot === snapshot?.id ? loadedReview : undefined
   useEffect(() => {
@@ -463,6 +465,7 @@ export function GitLabProvider({
           iid: result.matches[0].iid,
         })
         if (generation.current !== current) return
+        lastRefresh.current = Date.now()
         setReview(selected.review)
       }
       if (result.matches?.length) {
@@ -513,13 +516,27 @@ export function GitLabProvider({
     'all' | 'unresolved' | 'resolved' | 'activity'
   >('all')
   const session = review?.session
+  const reviewApps = useQuery({
+    queryKey: ['gitlab-review-apps', session, review?.mr.sha, review?.mr.head_pipeline?.status],
+    enabled: open && !!session,
+    staleTime: 60000,
+    refetchInterval: open ? 60000 : false,
+    retry: false,
+    queryFn: () => window.desktop.gitlab({ kind: 'review-apps', session: session! }),
+  })
   useEffect(() => setDiscussionFilter('all'), [session])
   useEffect(() => {
     if (!session) return
     let active = true
     let pending = false
     const refresh = async () => {
-      if (pending || actionPending.current || !document.hasFocus()) return
+      if (
+        pending ||
+        actionPending.current ||
+        !document.hasFocus() ||
+        Date.now() - lastRefresh.current < 60000
+      )
+        return
       pending = true
       const version = actionVersion.current
       try {
@@ -531,6 +548,8 @@ export function GitLabProvider({
       } catch (error) {
         if (active && version === actionVersion.current) setError((error as Error).message)
       } finally {
+        // Failed requests also get a cooldown to avoid retrying on every focus.
+        if (active) lastRefresh.current = Date.now()
         pending = false
       }
     }
@@ -561,7 +580,10 @@ export function GitLabProvider({
       try {
         const result = await window.desktop.gitlab(request)
         if (generation.current !== current) return false
-        if (result.review && !changed) setReview(result.review)
+        if (result.review && !changed) {
+          lastRefresh.current = Date.now()
+          setReview(result.review)
+        }
         if (
           ![
             'refresh',
@@ -577,6 +599,7 @@ export function GitLabProvider({
             try {
               const refreshed = await window.desktop.gitlab({ kind: 'refresh', session })
               if (generation.current === current) {
+                lastRefresh.current = Date.now()
                 latestReview.current = refreshed.review
                 setReview(refreshed.review)
               }
@@ -799,7 +822,10 @@ export function GitLabProvider({
                           aria-label="Refresh"
                           title="Refresh merge request"
                           disabled={busy || publishing}
-                          onClick={() => void act({ kind: 'refresh', session: review.session })}
+                          onClick={() => {
+                            void act({ kind: 'refresh', session: review.session })
+                            void reviewApps.refetch()
+                          }}
                         >
                           <RefreshCw className={busy ? 'animate-spin' : ''} />
                         </Button>
@@ -1067,8 +1093,8 @@ export function GitLabProvider({
                         </dd>
                         <dt className="text-muted-foreground">Review app</dt>
                         <dd className="space-y-2">
-                          {review.reviewApps?.length ? (
-                            review.reviewApps.map((app) => (
+                          {reviewApps.data?.reviewApps?.length ? (
+                            reviewApps.data.reviewApps.map((app) => (
                               <div key={app.id} className="flex flex-wrap items-center gap-2">
                                 <span
                                   className="min-w-0 text-xs text-muted-foreground wrap-anywhere"
@@ -1113,9 +1139,11 @@ export function GitLabProvider({
                             ))
                           ) : (
                             <span className="text-muted-foreground">
-                              {review.reviewAppsError
-                                ? 'Could not load review apps. Refresh to retry.'
-                                : 'No deployed review app'}
+                              {reviewApps.isPending
+                                ? 'Loading review apps…'
+                                : reviewApps.isError || reviewApps.data?.reviewAppsError
+                                  ? 'Could not load review apps.'
+                                  : 'No deployed review app'}
                             </span>
                           )}
                         </dd>
@@ -1143,6 +1171,7 @@ export function GitLabProvider({
                         <div className="markdown mt-3 wrap-anywhere">
                           {review.mr.description ? (
                             <Markdown
+                              rehypePlugins={[rehypeEmoji]}
                               remarkPlugins={[remarkGfm]}
                               skipHtml
                               components={{ img: ({ alt }) => <span>{alt}</span> }}

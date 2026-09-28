@@ -46,9 +46,14 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
   const comments: string[] = []
   const deletedNotes = new Set<number>()
   const positions: unknown[] = []
+  let releaseEnvironments!: () => void
+  const environmentsGate = new Promise<void>((resolve) => {
+    releaseEnvironments = resolve
+  })
   let baseURL = ''
   const server = createServer(async (request, response) => {
     const url = new URL(request.url!, baseURL)
+    if (url.pathname.endsWith('/environments')) await environmentsGate
     if (url.pathname === '/avatar.png') {
       response.setHeader('Content-Type', 'image/png')
       response.end(
@@ -260,6 +265,8 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
     const overlay = page.getByRole('dialog', { name: '!3 Fixture MR' })
     await expect(overlay).toBeVisible()
     await expect(overlay).toContainText('Review description')
+    await expect(overlay).toContainText('Loading review apps…')
+    releaseEnvironments()
     await application.evaluate(({ shell }) => {
       shell.openExternal = async (url) => {
         ;(globalThis as { openedApp?: string }).openedApp = url
@@ -669,6 +676,7 @@ test('GitLab lookup retry, side overlay, comments, approval and revision updates
 
     expect(errors).toEqual([])
   } finally {
+    releaseEnvironments()
     await application.close()
     await new Promise<void>((resolve) => server.close(() => resolve()))
     await rm(root, { recursive: true, force: true })

@@ -1,6 +1,7 @@
 import { memo, type MouseEvent } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { rehypeEmoji } from './rehypeEmoji'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
@@ -108,6 +109,7 @@ export const CommentMarkdown = memo(function CommentMarkdown({
         rehypePlugins={[
           rehypeRaw,
           rehypeSanitize,
+          rehypeEmoji,
           [rehypeHighlight, { detect: true, plainText: ['text', 'plaintext', 'txt'] }],
           [rehypeSuggestions, { suggestions, suggestionSource }],
         ]}

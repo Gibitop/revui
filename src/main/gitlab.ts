@@ -50,6 +50,7 @@ export const gitlabRequestSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('select'), snapshot: id, iid: z.number().int().positive() }),
   z.object({ kind: z.literal('refresh'), session: id }),
+  z.object({ kind: z.literal('review-apps'), session: id }),
   z.object({ kind: z.literal('avatar'), session: id, user: z.number().int().positive() }),
   z.object({ kind: z.literal('approve'), session: id, approved: z.boolean() }),
   z.object({
@@ -157,7 +158,7 @@ export class GitLabService {
   private avatars = new Map<string, Promise<string | null>>()
   private queue: Promise<unknown> = Promise.resolve()
   private reads = new Map<string, Promise<GitLabResult>>()
-  private httpQueue: Promise<unknown> = Promise.resolve()
+  private httpRequests = new Set<Promise<Response>>()
   private cooldowns = new Map<string, number>()
   constructor(
     private directory: string,
@@ -204,9 +205,13 @@ export class GitLabService {
       version: this.credentials?.serverVersion,
     }
   }
-  private transport(url: URL, options: RequestInit, maxBytes?: number, timeout = 30000) {
+  private async transport(url: URL, options: RequestInit, maxBytes?: number, timeout = 30000) {
     const credentials = this.credentials
-    const next = this.httpQueue.then(async () => {
+    // Bound concurrency without serializing independent MR requests behind slow responses.
+    while (this.httpRequests.size >= 4) {
+      await Promise.race(this.httpRequests).catch(() => undefined)
+    }
+    const next = (async () => {
       for (let attempt = 0; ; attempt++) {
         // Keep the cooldown shared by API calls and avatars, including after a failed request.
         while ((this.cooldowns.get(url.origin) ?? 0) > Date.now()) {
@@ -256,9 +261,13 @@ export class GitLabService {
           )
         }
       }
-    })
-    this.httpQueue = next.catch(() => undefined)
-    return next
+    })()
+    this.httpRequests.add(next)
+    try {
+      return await next
+    } finally {
+      this.httpRequests.delete(next)
+    }
   }
   private async send(url: URL, options: RequestInit, maxBytes = 50 * 1024 * 1024) {
     const credentials = this.credentials
@@ -398,11 +407,17 @@ export class GitLabService {
       return false
     }
   }
-  private async refresh(session: Session) {
+  private async refresh(
+    session: Session,
+    initial?: {
+      mr: MR
+      user: { id: number; email?: string; public_email?: string; commit_email?: string }
+    },
+  ) {
     const { review } = session
     const root = `projects/${review.mr.project_id}/merge_requests/${review.mr.iid}`
     const [mr, discussions, approvals] = await Promise.all([
-      this.api<MR>(root),
+      initial?.mr ?? this.api<MR>(root),
       this.api<Discussion[]>(`${root}/discussions`),
       this.api<GitLabReview['approvals']>(`${root}/approvals`).then(
         (value) => ({ value, error: undefined }),
@@ -415,7 +430,8 @@ export class GitLabService {
     } else {
       try {
         const [user, addresses, commits] = await Promise.all([
-          this.api<{ email?: string; public_email?: string; commit_email?: string }>('user'),
+          initial?.user ??
+            this.api<{ email?: string; public_email?: string; commit_email?: string }>('user'),
           this.api<{ email: string; confirmed_at: string | null }[]>('user/emails'),
           this.api<{ author_email: string; committer_email: string }[]>(`${root}/commits`),
         ])
@@ -462,8 +478,23 @@ export class GitLabService {
         review.pinned = mr.diff_refs
       }
     }
-    review.reviewApps = []
-    delete review.reviewAppsError
+    review.mr = mr
+    review.discussions = discussions
+    review.approvals = approvals.value
+    review.approvalError = approvals.error
+    return { review: structuredClone(review) }
+  }
+  private async reviewApps(
+    input: Extract<GitLabRequest, { kind: 'review-apps' }>,
+  ): Promise<GitLabResult> {
+    const session = this.sessions.get(input.session)
+    if (!session) throw new Error('This GitLab review is no longer active. Search again.')
+    this.snapshot(session.snapshot.id)
+    const credentials = this.credentials
+    const { review } = session
+    const { mr } = review
+    const reviewApps: NonNullable<GitLabReview['reviewApps']> = []
+    let reviewAppsError: string | undefined
     try {
       type Environment = {
         id: number
@@ -504,19 +535,19 @@ export class GitLabService {
         try {
           const url = new URL(environment.external_url)
           if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) continue
-          review.reviewApps.push({ id: environment.id, name: environment.name, url: url.href })
+          reviewApps.push({ id: environment.id, name: environment.name, url: url.href })
         } catch {
           /* Environments without a usable web URL have no app actions. */
         }
       }
     } catch (error) {
-      review.reviewAppsError = (error as Error).message
+      reviewAppsError = (error as Error).message
     }
-    review.mr = mr
-    review.discussions = discussions
-    review.approvals = approvals.value
-    review.approvalError = approvals.error
-    return { review: structuredClone(review) }
+    if (credentials !== this.credentials || this.sessions.get(input.session) !== session)
+      throw new Error('This GitLab review is no longer active. Search again.')
+    review.reviewApps = reviewApps
+    review.reviewAppsError = reviewAppsError
+    return { reviewApps, reviewAppsError }
   }
   private async position(session: Session, anchor: Anchor): Promise<Position> {
     const { review } = session
@@ -639,6 +670,17 @@ export class GitLabService {
   handle(input: GitLabRequest): Promise<GitLabResult> {
     const parsed = gitlabRequestSchema.parse(input)
     if (parsed.kind === 'avatar') return this.avatar(parsed)
+    if (parsed.kind === 'review-apps') {
+      const key = JSON.stringify(parsed)
+      let pending = this.reads.get(key)
+      if (!pending) {
+        pending = this.reviewApps(parsed).finally(() => {
+          if (this.reads.get(key) === pending) this.reads.delete(key)
+        })
+        this.reads.set(key, pending)
+      }
+      return pending.then((result) => structuredClone(result))
+    }
     const read = ['config', 'list-mrs', 'lookup', 'select', 'refresh'].includes(parsed.kind)
     const key = JSON.stringify(parsed)
     if (read) {
@@ -657,7 +699,9 @@ export class GitLabService {
     this.queue = next.catch(() => undefined)
     return next.then((result) => structuredClone(result))
   }
-  private async run(input: Exclude<GitLabRequest, { kind: 'avatar' }>): Promise<GitLabResult> {
+  private async run(
+    input: Exclude<GitLabRequest, { kind: 'avatar' | 'review-apps' }>,
+  ): Promise<GitLabResult> {
     if (input.kind === 'config') return { config: this.config() }
     if (input.kind === 'configure') {
       const url = new URL(input.url)
@@ -870,10 +914,20 @@ export class GitLabService {
       if (!match?.mrs.some((mr) => mr.iid === input.iid))
         throw new Error('Search for this MR again.')
       const root = `projects/${match.project}/merge_requests/${input.iid}`
-      const mr = await this.api<MR>(root)
-      const versions = await this.api<
-        { id: number; head_commit_sha: string; base_commit_sha: string; start_commit_sha: string }[]
-      >(`${root}/versions`)
+      const [mr, versions, user] = await Promise.all([
+        this.api<MR>(root),
+        this.api<
+          {
+            id: number
+            head_commit_sha: string
+            base_commit_sha: string
+            start_commit_sha: string
+          }[]
+        >(`${root}/versions`),
+        this.api<{ id: number; email?: string; public_email?: string; commit_email?: string }>(
+          'user',
+        ),
+      ])
       const version = versions.find(
         (version) =>
           version.head_commit_sha === mr.diff_refs?.head_sha &&
@@ -882,11 +936,9 @@ export class GitLabService {
       )
       if (!version || !mr.diff_refs)
         throw new Error('GitLab is still preparing this MR diff. Retry shortly.')
-      const detail = await this.api<{ diffs: Diff[] }>(`${root}/versions/${version.id}`)
-      const user = await this.api<{ id: number }>('user')
       const session: Session = {
         snapshot,
-        diffs: detail.diffs,
+        diffs: [],
         review: {
           session: randomUUID(),
           mr,
@@ -897,9 +949,14 @@ export class GitLabService {
           aligned: false,
         },
       }
+      const [detail, result] = await Promise.all([
+        this.api<{ diffs: Diff[] }>(`${root}/versions/${version.id}`),
+        this.refresh(session, { mr, user }),
+      ])
+      session.diffs = detail.diffs
       this.snapshot(input.snapshot)
       this.sessions.set(session.review.session, session)
-      return this.refresh(session)
+      return result
     }
     const session = this.sessions.get(input.session)
     if (!session) throw new Error('This GitLab review is no longer active. Search again.')

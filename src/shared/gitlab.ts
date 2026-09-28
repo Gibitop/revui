@@ -98,6 +98,7 @@ export type GitLabRequest =
   | { kind: 'lookup'; snapshot: string; iid?: number }
   | { kind: 'select'; snapshot: string; iid: number }
   | { kind: 'refresh'; session: string }
+  | { kind: 'review-apps'; session: string }
   | { kind: 'avatar'; session: string; user: number }
   | { kind: 'approve'; session: string; approved: boolean }
   | {
@@ -114,6 +115,8 @@ export type GitLabRequest =
   | { kind: 'open-pipeline' | 'copy-pipeline-link'; session: string }
   | { kind: 'open-app' | 'copy-app-link'; session: string; environment: number }
 export type GitLabResult = {
+  reviewApps?: GitLabReview['reviewApps']
+  reviewAppsError?: string
   iid?: number
   comparison?: Comparison
   posted?: boolean

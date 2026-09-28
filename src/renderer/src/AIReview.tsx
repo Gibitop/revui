@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import Markdown, { defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { rehypeEmoji } from './rehypeEmoji'
 import { AIIcon } from './AISelect'
 import { chatFileReferences } from './chatFiles'
 import {
@@ -835,6 +836,7 @@ function AIReviewPanel({
               const content = (
                 <div className="prose-review">
                   <Markdown
+                    rehypePlugins={[rehypeEmoji]}
                     urlTransform={(url) => (ai.files.resolve(url) ? url : defaultUrlTransform(url))}
                     remarkPlugins={
                       message.role === 'assistant' ? [remarkGfm, ai.files.plugin] : [remarkGfm]

@@ -1,4 +1,5 @@
 import Markdown from 'react-markdown'
+import { rehypeEmoji } from './rehypeEmoji'
 import {
   Fragment,
   useEffect,
@@ -545,6 +546,7 @@ export function CodeIntelligence({
       {popup.hover && (
         <div className="markdown code-tooltip break-words">
           <Markdown
+            rehypePlugins={[rehypeEmoji]}
             skipHtml
             components={{
               code: ({ children, className }) => (
