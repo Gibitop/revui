@@ -246,6 +246,11 @@ export function RepositoryDialog({
   error: Error | null
 }) {
   const [search, setSearch] = useState('')
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setSearch('')
+  }
   const matches = paths.filter((path) => path.toLowerCase().includes(search.trim().toLowerCase()))
 
   return (
@@ -253,7 +258,6 @@ export function RepositoryDialog({
       <DialogContent
         className="max-h-[calc(100dvh-3rem)] max-w-lg overflow-auto"
         closeLabel="Close repository picker"
-        onOpenAutoFocus={() => setSearch('')}
       >
         <DialogTitle className="pr-8 font-semibold">Open repository</DialogTitle>
         <DialogDescription className="mt-1 text-muted-foreground">

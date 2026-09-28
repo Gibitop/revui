@@ -21,6 +21,7 @@ export function DialogContent({
   showCloseButton?: boolean
   animation?: 'zoom' | 'slide-right'
 }) {
+  const returnFocus = React.useRef<HTMLElement | null>(null)
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/35 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0" />
@@ -34,6 +35,21 @@ export function DialogContent({
           className,
         )}
         {...props}
+        onOpenAutoFocus={(event) => {
+          returnFocus.current =
+            document.activeElement instanceof HTMLElement &&
+            document.activeElement !== document.body
+              ? document.activeElement
+              : null
+          props.onOpenAutoFocus?.(event)
+        }}
+        onCloseAutoFocus={(event) => {
+          props.onCloseAutoFocus?.(event)
+          if (!event.defaultPrevented && returnFocus.current?.isConnected) {
+            event.preventDefault()
+            returnFocus.current.focus()
+          }
+        }}
       >
         {children}
         {showCloseButton && (

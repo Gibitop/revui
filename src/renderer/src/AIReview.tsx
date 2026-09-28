@@ -78,6 +78,7 @@ export function AIReviewProvider({
 }) {
   const files = useMemo(() => chatFileReferences(snapshot), [snapshot])
   const [state, setState] = useState<AIState>()
+  const [reviewState, setReviewState] = useState<AIState>()
   const [error, setError] = useState('')
   const [reviewNotification, setReviewNotification] = useState<{
     completed: string
@@ -142,6 +143,7 @@ export function AIReviewProvider({
       ])
       if (findingsKey.current !== key) {
         findingsKey.current = key
+        setReviewState(value)
         onState(value)
       }
     },
@@ -150,6 +152,7 @@ export function AIReviewProvider({
   useEffect(() => {
     active.current = id
     setState(undefined)
+    setReviewState(undefined)
     setReviewNotification(undefined)
     setOrderNotification(undefined)
     previousOrder.current = undefined
@@ -178,37 +181,46 @@ export function AIReviewProvider({
       off()
     }
   }, [id, onState, receive])
-  const run = async (request: AIRequest) => {
-    setError('')
-    if (request.kind === 'walkthrough' && state)
-      setState({
-        ...state,
-        record: {
-          ...state.record,
-          walkthrough: state.record.walkthrough.map((group) =>
-            group.id === request.id ? { ...group, done: request.done } : group,
-          ),
-        },
-      })
-    try {
-      const value = await window.desktop.ai(request)
-      if (active.current !== id) return undefined
-      if (value.snapshot === id) {
-        receive(value)
+  const run = useCallback(
+    async (request: AIRequest) => {
+      setError('')
+      if (request.kind === 'walkthrough') {
+        const update = (current: AIState | undefined) =>
+          current
+            ? {
+                ...current,
+                record: {
+                  ...current.record,
+                  walkthrough: current.record.walkthrough.map((group) =>
+                    group.id === request.id ? { ...group, done: request.done } : group,
+                  ),
+                },
+              }
+            : current
+        setState(update)
+        setReviewState(update)
       }
-      if (request.kind === 'finding')
-        await queryClient.invalidateQueries({ queryKey: ['review-record', id] })
-      return value
-    } catch (error) {
-      if (
-        active.current === id &&
-        (!('chatId' in request) || !request.chatId || request.chatId === activeChat.current)
-      ) {
-        setError((error as Error).message)
+      try {
+        const value = await window.desktop.ai(request)
+        if (active.current !== id) return undefined
+        if (value.snapshot === id) {
+          receive(value)
+        }
+        if (request.kind === 'finding')
+          await queryClient.invalidateQueries({ queryKey: ['review-record', id] })
+        return value
+      } catch (error) {
+        if (
+          active.current === id &&
+          (!('chatId' in request) || !request.chatId || request.chatId === activeChat.current)
+        ) {
+          setError((error as Error).message)
+        }
+        return undefined
       }
-      return undefined
-    }
-  }
+    },
+    [id, receive, queryClient],
+  )
   const automatic = useRef<{ snapshot?: string; review: boolean; order: boolean }>({
     review: false,
     order: false,
@@ -229,20 +241,23 @@ export function AIReviewProvider({
   useEffect(() => {
     startAutomatic()
   }, [id, state?.snapshot, settings.autoAIReview, settings.autoAIReviewOrder])
+  const attach = useCallback(
+    (attachment: AIAttachment) => {
+      setChatAttachments((current) => ({
+        ...current,
+        [chatId]: [...(current[chatId] ?? []), attachment],
+      }))
+      onOpen(true)
+    },
+    [chatId, onOpen],
+  )
+  // Streaming chat messages must not invalidate the entire diff/tree context.
+  const reviewContext = useMemo(
+    () => ({ state: reviewState, error, run, files, openFile: onFile, attach }),
+    [reviewState, error, run, files, onFile, attach],
+  )
   return (
-    <AIContext.Provider
-      value={{
-        state,
-        error,
-        run,
-        files,
-        openFile: onFile,
-        attach: (attachment) => {
-          setAttachments([...attachments, attachment])
-          onOpen(true)
-        },
-      }}
-    >
+    <AIContext.Provider value={reviewContext}>
       {children}
       <div className="fixed right-5 bottom-5 z-50 flex max-w-sm flex-col gap-3">
         {reviewNotification && (
@@ -295,17 +310,19 @@ export function AIReviewProvider({
         )}
       </div>
       {open && id && (
-        <AIReviewPanel
-          workspace={workspace}
-          key={id}
-          snapshot={id}
-          settings={settings}
-          preferences={preferences}
-          error={error}
-          attachments={attachments}
-          setAttachments={setAttachments}
-          onClose={() => onOpen(false)}
-        />
+        <AIContext.Provider value={{ ...reviewContext, state }}>
+          <AIReviewPanel
+            workspace={workspace}
+            key={id}
+            snapshot={id}
+            settings={settings}
+            preferences={preferences}
+            error={error}
+            attachments={attachments}
+            setAttachments={setAttachments}
+            onClose={() => onOpen(false)}
+          />
+        </AIContext.Provider>
       )}
     </AIContext.Provider>
   )
@@ -714,19 +731,25 @@ function AIReviewPanel({
                     )}
                     {title}
                   </button>
-                  <button
-                    aria-label={`Close chat: ${title}`}
-                    title="Close chat"
-                    disabled={changingChat}
-                    className="mr-1 rounded p-1 hover:bg-muted disabled:opacity-40"
-                    onClick={() => void changeChat({ kind: 'close-chat', snapshot, id: chat.id })}
-                  >
-                    <X className="size-3" />
-                  </button>
                 </div>
               )
             })}
           </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Close chat: ${
+              chats
+                .find((chat) => chat.id === chatId)
+                ?.messages.find((message) => message.role === 'user')
+                ?.text.split('\n')[0] || 'New chat'
+            }`}
+            title="Close current chat"
+            disabled={!chatId || changingChat}
+            onClick={() => void changeChat({ kind: 'close-chat', snapshot, id: chatId! })}
+          >
+            <X className="size-3" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"

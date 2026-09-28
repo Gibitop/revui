@@ -1,0 +1,27 @@
+{
+  "scrolling": {
+    "p95FrameMs": 60,
+    "maxFrameMs": 91,
+    "frames": 200,
+    "scrollTop": 7000
+  },
+  "activity": {
+    "chunks": 115,
+    "refreshes": 12
+  },
+  "machine": {
+    "platform": "darwin",
+    "release": "25.3.0",
+    "arch": "arm64",
+    "cpu": "Apple M1 Pro",
+    "cores": 10,
+    "memoryGiB": 16
+  },
+  "measuredAt": "2026-09-27T21:08:44.723Z",
+  "packages": 100,
+  "linesPerFile": 40,
+  "firstVisibleMs": 1830,
+  "cachedNavigationMs": 9,
+  "tracked": 100000,
+  "changed": 1000
+}

@@ -91,6 +91,9 @@ test('long-file thread navigation stays inside the review pane; native copy and 
       page.getByRole('textbox', { name: 'Search file contents', exact: true }),
     ).toBeFocused()
     await page.keyboard.press('Escape')
+    await expect(
+      page.getByRole('dialog', { name: 'Search file contents', includeHidden: true }),
+    ).toHaveCount(0)
     await page.getByRole('button', { name: 'Search contents', exact: true }).click()
     await page.getByRole('textbox', { name: 'Search file contents', exact: true }).fill('needle')
     await page
@@ -116,6 +119,10 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     )
     const input = page.getByLabel('Comment on src/long.ts')
     await input.fill('')
+    // Wait for asynchronous syntax highlighting before checking node identity.
+    await expect
+      .poll(() => file.locator('[data-line="600"] span[style]').count())
+      .toBeGreaterThan(0)
     // Typing must not rebuild the rendered code for every keystroke.
     const renderedLine = await file.locator('[data-line="600"]').last().elementHandle()
     await input.pressSequentially('Review this distant line')
@@ -189,6 +196,8 @@ test('long-file thread navigation stays inside the review pane; native copy and 
       .evaluate((node) => node.scrollTop)
     await page.getByRole('treeitem', { name: /long.ts/ }).click()
     await page.locator('[data-testid="diff-scroll"] > div').evaluate((node, top) => {
+      // Manual scrolling relinquishes the file-navigation anchor before resizing.
+      node.dispatchEvent(new Event('wheel'))
       node.scrollTop = top
     }, threadScroll)
     await expect(file.locator('[data-line="599"][data-thread-range]').last()).toBeVisible()
@@ -200,6 +209,8 @@ test('long-file thread navigation stays inside the review pane; native copy and 
     )
     await expect(file.locator('[data-diff-type="split"]')).toBeVisible()
     await page.locator('[data-testid="diff-scroll"] > div').evaluate((node, top) => {
+      // Manual scrolling relinquishes the file-navigation anchor before resizing.
+      node.dispatchEvent(new Event('wheel'))
       node.scrollTop = top
     }, threadScroll)
     await expect(
@@ -515,6 +526,7 @@ test('diffs and file navigation follow the tree folders-first natural order', as
         nodes.map((node) => node.getAttribute('data-item-path')),
       ),
     ).toEqual(expected)
+    await expect(page.getByRole('article')).toHaveCount(expected.length)
     expect(
       await page
         .getByRole('article')

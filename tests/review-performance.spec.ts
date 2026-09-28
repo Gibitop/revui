@@ -198,6 +198,53 @@ test('large reviews size AI trees to content, preserve selection scroll and resi
     await section.getByRole('treeitem', { name: /^src/ }).click()
     await expect(section.getByRole('treeitem', { name: /file-000.ts/ })).toBeVisible()
     await expect(section.getByRole('treeitem')).toHaveCount(paths.length + 1)
+
+    await page.getByRole('button', { name: 'File view', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Flat list', exact: true }).click()
+    for (const ordering of ['Filesystem order', 'AI review order']) {
+      await page.getByRole('button', { name: 'File ordering', exact: true }).click()
+      await page.getByRole('menuitemradio', { name: ordering, exact: true }).click()
+      const list = page.getByRole('list', { name: 'File list' })
+      const rows = list.getByRole('listitem')
+      const first = list.getByRole('button', { name: paths[0], exact: true })
+      const last = list.getByRole('button', { name: paths.at(-1)!, exact: true })
+      await expect(first).toBeInViewport()
+      await expect.poll(() => rows.count()).toBeLessThan(80)
+      await expect(last).toHaveCount(0)
+      await first.focus()
+      await page.keyboard.press('End')
+      await expect(last).toHaveAttribute('aria-current', 'true')
+      await expect(last).toBeFocused()
+      await expect(last).toBeInViewport()
+      await expect(first).toHaveCount(0)
+      await expect.poll(() => rows.count()).toBeLessThan(80)
+      await page.keyboard.press('Home')
+      await expect(first).toBeFocused()
+      await expect(first).toBeInViewport()
+      // Scrolling must render distant rows without changing selection.
+      await list.evaluate((element) => {
+        const scroll = element.closest('.flat-file-list')!
+        scroll.scrollTop = scroll.scrollHeight
+      })
+      await expect(last).toBeInViewport()
+      await expect(first).toHaveCount(0)
+      await last.click()
+      await page.getByRole('button', { name: 'Next file', exact: true }).click()
+      await expect(first).toHaveAttribute('aria-current', 'true')
+      await expect(first).toBeInViewport()
+      if (ordering === 'AI review order') {
+        const header = await section.getByTestId('review-step-header').boundingBox()
+        const row = await first.boundingBox()
+        expect(row!.y).toBeGreaterThanOrEqual(header!.y + header!.height - 1)
+      }
+      const search = page.getByRole('textbox', { name: 'Search files', exact: true })
+      await search.fill('file-478')
+      await expect(rows).toHaveCount(1)
+      await expect(last).toBeInViewport()
+      await search.fill('')
+      await expect.poll(() => rows.count()).toBeGreaterThan(1)
+      await expect.poll(() => rows.count()).toBeLessThan(80)
+    }
   } finally {
     await application.close()
     await rm(root, { recursive: true, force: true })

@@ -1458,21 +1458,31 @@ export function GitLabDiscussion({
             <p className="text-xs text-muted-foreground">Outdated / unplaced</p>
           )}
           {inOverlay && position && (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span className="break-all font-mono">
-                {position.new_line || position.position_type === 'file'
-                  ? position.new_path
-                  : position.old_path}
-                {position.position_type === 'text'
-                  ? `:${position.new_line ?? position.old_line ?? 'unplaced'}`
-                  : ''}
-                {outdated ? ' · Outdated / unplaced' : ''}
+            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              <span
+                className="min-w-0 truncate font-mono"
+                dir="rtl"
+                title={
+                  position.new_line || position.position_type === 'file'
+                    ? position.new_path
+                    : position.old_path
+                }
+              >
+                <bdi dir="ltr">
+                  {position.new_line || position.position_type === 'file'
+                    ? position.new_path
+                    : position.old_path}
+                  {position.position_type === 'text'
+                    ? `:${position.new_line ?? position.old_line ?? 'unplaced'}`
+                    : ''}
+                </bdi>
               </span>
+              {outdated && <span className="shrink-0">Outdated / unplaced</span>}
               {onNavigate && (
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-6 gap-1 px-2 text-xs"
+                  className="h-6 shrink-0 gap-1 px-2 text-xs"
                   onClick={onNavigate}
                 >
                   <ArrowRight className="size-3" />

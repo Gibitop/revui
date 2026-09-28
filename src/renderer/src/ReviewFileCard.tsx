@@ -1,13 +1,13 @@
 import { CodeIntelligence } from './CodeIntelligence'
 import type { CodeLocation } from '../../shared/intelligence'
 import { useGitLab, GitLabComposer, GitLabDiscussion } from './GitLab'
-import type { Discussion } from '../../shared/gitlab'
+import type { Discussion, GitLabReview } from '../../shared/gitlab'
 import { IDEButton } from './IDEButton'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { CommentComposer } from './CommentComposer'
 import { memo, useEffect, useRef, useState, type ComponentProps, type RefObject } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { replaceEqualDeep, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { File, FileDiff, useVirtualizer, type FileDiffMetadata } from '@pierre/diffs/react'
 import {
   VirtualizedFile,
@@ -33,10 +33,38 @@ import { gitStatuses } from './ReviewSidebar'
 // Query-owned contents keep parsed diffs alive across navigation, without retaining old reviews.
 const parsedDiffs = new WeakMap<FileContent, FileDiffMetadata>()
 
+// Darken light-theme tokens so syntax stays legible on tinted diff backgrounds.
 const codeCSS =
-  ':host { --diffs-font-family: "Geist Mono Variable", monospace; --diffs-font-size: 13px; --diffs-line-height: 20px; } [data-thread-range]:not([data-selected-line]) { background-color: color-mix(in srgb, #3b82f6 14%, transparent); box-shadow: inset 2px 0 #3b82f6; }'
+  '[data-line] span[style*="--diffs-token-light"] { color: light-dark(color-mix(in srgb, var(--diffs-token-light) 65%, #000), var(--diffs-token-dark)); } :host { --diffs-font-family: "Geist Mono Variable", monospace; --diffs-font-size: 13px; --diffs-line-height: 20px; } [data-thread-range]:not([data-selected-line]) { background-color: color-mix(in srgb, #3b82f6 14%, transparent); box-shadow: inset 2px 0 #3b82f6; }'
 
-export const ReviewFileCard = memo(function ReviewFileCard({
+// General MR refreshes must not rerender every file and its content queries.
+export const ReviewFileCard = memo(function ReviewFileCard(
+  props: Omit<ComponentProps<typeof ReviewFileCardContent>, 'gitlabReview'>,
+) {
+  const gitlab = useGitLab()
+  const previous = useRef<Pick<GitLabReview, 'aligned' | 'pinned' | 'discussions'>>(undefined)
+  const review = gitlab?.review
+  previous.current = replaceEqualDeep(
+    previous.current,
+    review
+      ? {
+          aligned: review.aligned,
+          pinned: review.pinned,
+          discussions: review.discussions.filter((discussion) => {
+            const position = discussion.notes[0]?.position
+            return (
+              position &&
+              (position.new_path === props.path ||
+                position.old_path === (props.metadata?.oldPath ?? props.path))
+            )
+          }),
+        }
+      : undefined,
+  )
+  return <ReviewFileCardContent {...props} gitlabReview={previous.current} />
+})
+
+const ReviewFileCardContent = memo(function ReviewFileCardContent({
   snapshot,
   path,
   record,
@@ -52,7 +80,9 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   workspaceReady,
   intelligenceReady,
   onNavigate,
+  gitlabReview,
 }: {
+  gitlabReview?: Pick<GitLabReview, 'aligned' | 'pinned' | 'discussions'>
   onNavigate: (location: CodeLocation, origin: CodeLocation) => void
   workspaceId: string | null
   workspaceReady: boolean
@@ -69,7 +99,7 @@ export const ReviewFileCard = memo(function ReviewFileCard({
   threadVisit: number
   searchHit: (ContentMatch & { key: number; codeNavigation?: boolean; fileOnly?: boolean }) | null
 }) {
-  const gitlab = useGitLab()
+  const gitlab = { review: gitlabReview }
   const virtualizer = useVirtualizer()
   const root = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -556,21 +586,27 @@ export const ReviewFileCard = memo(function ReviewFileCard({
             : 'Unchanged'}
         </span>
         <h2
-          dir="rtl"
           title={metadata && metadata.oldPath !== path ? `${metadata.oldPath} → ${path}` : path}
-          className="min-w-0 truncate text-left font-mono group-data-[git-status=added]:text-git-added group-data-[git-status=untracked]:text-git-added group-data-[git-status=deleted]:text-git-deleted group-data-[git-status=modified]:text-git-modified group-data-[git-status=renamed]:text-git-renamed group-data-[git-status=conflicted]:text-git-conflicted"
+          className="flex min-w-0 flex-wrap items-center gap-x-2 text-left font-mono leading-4 group-data-[git-status=added]:text-git-added group-data-[git-status=untracked]:text-git-added group-data-[git-status=deleted]:text-git-deleted group-data-[git-status=modified]:text-git-modified group-data-[git-status=renamed]:text-git-renamed group-data-[git-status=conflicted]:text-git-conflicted"
         >
-          <bdi dir="ltr">
-            {metadata && metadata.oldPath !== path ? (
-              <>
-                {metadata.oldPath}{' '}
-                <ArrowRight className="inline size-4 align-middle" aria-hidden="true" />
-                <span className="sr-only"> to </span> {path}
-              </>
-            ) : (
-              path
-            )}
-          </bdi>
+          {metadata && metadata.oldPath !== path ? (
+            <>
+              <span className="flex max-w-full items-center gap-2" title={metadata.oldPath}>
+                <span className="min-w-0 truncate" dir="rtl">
+                  <bdi dir="ltr">{metadata.oldPath}</bdi>
+                </span>
+                <ArrowRight className="size-4 shrink-0" aria-hidden="true" />
+                <span className="sr-only"> to </span>
+              </span>
+              <span className="max-w-[calc(100%_-_1.5rem)] truncate" dir="rtl" title={path}>
+                <bdi dir="ltr">{path}</bdi>
+              </span>
+            </>
+          ) : (
+            <span className="min-w-0 truncate" dir="rtl">
+              <bdi dir="ltr">{path}</bdi>
+            </span>
+          )}
         </h2>
         <Button
           variant="ghost"

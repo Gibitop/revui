@@ -183,7 +183,9 @@ test('workspace preparation, setup output, IDE arguments and restoration', async
     await expect(fileIDE).toBeDisabled()
     await expect(fileIDEMenu).toBeDisabled()
     await toolbar.getByRole('group', { name: 'Open project in IDE' }).hover()
-    await expect(page.getByRole('tooltip')).toContainText('Check out the comparison target')
+    await expect(
+      page.getByRole('tooltip', { name: /Check out the comparison target/ }),
+    ).toBeVisible()
     await toolbar.getByRole('button', { name: 'Initialize workspace', exact: true }).click()
     await expect(
       page.getByRole('heading', { name: 'Prepare workspace', exact: true }),

@@ -155,14 +155,6 @@ export function ThreadView({
             className={`space-y-2 ${index < messages.length - 1 || reply ? 'border-b pb-2' : ''}`}
           >
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
-              {index === 0 && (
-                <span
-                  data-testid={source === 'Local' ? 'local-tag' : undefined}
-                  className="rounded border px-1 text-muted-foreground"
-                >
-                  {source}
-                </span>
-              )}
               {index === 0 && resolved && (
                 <span className="inline-flex items-center gap-1 rounded border border-green-600/25 bg-green-500/10 px-1.5 text-xs text-green-700 dark:text-green-400">
                   <Check aria-hidden="true" className="size-3" />
@@ -185,6 +177,14 @@ export function ThreadView({
               {message.author}
               <span aria-hidden="true">·</span>
               <CommentDate date={message.date} />
+              {index === 0 && (
+                <span
+                  data-testid={source === 'Local' ? 'local-tag' : undefined}
+                  className="rounded border px-1 text-muted-foreground"
+                >
+                  {source}
+                </span>
+              )}
               <div className="ml-auto flex shrink-0 items-center gap-1">
                 {index === 0 && onAttach && (
                   <Button

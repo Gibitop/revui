@@ -58,10 +58,7 @@ export function RevisionSelect({
       }}
     >
       <div ref={container} className="min-w-0 space-y-2">
-        <Label
-          htmlFor={id}
-          className={label === 'Old' ? 'text-git-deleted/60' : 'text-git-added/60'}
-        >
+        <Label htmlFor={id} className={label === 'Old' ? 'text-git-deleted' : 'text-git-added'}>
           {label}
         </Label>
         <div className="flex w-full items-center rounded-md border border-input bg-background px-2 focus-within:ring-2 focus-within:ring-ring">

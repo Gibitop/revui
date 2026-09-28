@@ -77,3 +77,45 @@ describe('chat file references', () => {
     expect(tree.children[1]).toEqual({ type: 'code', value: 'src/app.ts' })
   })
 })
+
+it('links large-repository references without building a repository-sized regular expression', () => {
+  const paths = Array.from({ length: 100000 }, (_, i) => `packages/pkg-${i}/src/file-${i}.ts`)
+  paths.push('docs/my guide.md', 'docs/my', 'src/a+b[1].ts')
+  const references = chatFileReferences({
+    repository: '/repo',
+    paths,
+    files: [],
+  } as unknown as Snapshot)
+  const tree = {
+    type: 'root',
+    children: [
+      {
+        type: 'text',
+        value:
+          'Reviewing package dependencies. See packages/pkg-99999/src/file-99999.ts:20, docs/my guide.md and src/a+b[1].ts. file-99999.tsx is not a file.',
+      },
+    ],
+  }
+  references.plugin()(tree)
+  expect(tree.children.filter((node) => node.type === 'link')).toEqual([
+    {
+      type: 'link',
+      url: '#review-file=packages%2Fpkg-99999%2Fsrc%2Ffile-99999.ts%3A20',
+      children: [{ type: 'text', value: 'packages/pkg-99999/src/file-99999.ts:20' }],
+    },
+    {
+      type: 'link',
+      url: '#review-file=docs%2Fmy%20guide.md',
+      children: [{ type: 'text', value: 'docs/my guide.md' }],
+    },
+    {
+      type: 'link',
+      url: '#review-file=src%2Fa%2Bb%5B1%5D.ts',
+      children: [{ type: 'text', value: 'src/a+b[1].ts' }],
+    },
+  ])
+  expect(references.resolve('/another/worktree/packages/pkg-99999/src/file-99999.ts:20')).toEqual({
+    path: paths[99999],
+    line: 20,
+  })
+})

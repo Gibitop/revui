@@ -2,6 +2,8 @@ import { memo, type MouseEvent } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import { diffLines } from 'diff'
 import { visit } from 'unist-util-visit'
 import type { Element, Root } from 'hast'
@@ -104,10 +106,11 @@ export const CommentMarkdown = memo(function CommentMarkdown({
       <Markdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[
+          rehypeRaw,
+          rehypeSanitize,
           [rehypeHighlight, { detect: true, plainText: ['text', 'plaintext', 'txt'] }],
           [rehypeSuggestions, { suggestions, suggestionSource }],
         ]}
-        skipHtml
         components={{
           img: ({ alt }) => <span>{alt}</span>,
           code: ({ className, children, node }) => (

@@ -139,7 +139,7 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
       'aria-current',
       'true',
     )
-    await page.locator('body').press('ArrowRight')
+    await page.locator('body').press('Alt+ArrowDown')
     await expect(order.getByRole('button', { name: 'file.ts', exact: true })).toHaveAttribute(
       'aria-current',
       'true',
@@ -197,7 +197,7 @@ test('Codex chat, approvals, cancellation, inline findings, local conversion and
     await page.getByRole('button', { name: 'AI review', exact: true }).click()
     let panel = page.getByRole('complementary', { name: 'Codex review panel' })
     await expect(
-      panel.getByText('AI works better with an initialized workspace', { exact: true }),
+      panel.getByText('AI chats work better in an initialized workspace', { exact: true }),
     ).toBeVisible()
     await expect(panel.getByRole('button', { name: 'Suggest review order' })).toHaveCount(0)
     await expect(panel.getByText('Suggest a grouped review order', { exact: false })).toHaveCount(0)

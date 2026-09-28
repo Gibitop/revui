@@ -69,7 +69,7 @@ export function ComparisonControls({
       className="comparison-controls flex min-w-0 items-center gap-2"
     >
       <div className="flex min-w-0 items-center gap-2 text-sm">
-        <span className="shrink-0 text-git-deleted/60">Old</span>
+        <span className="shrink-0 text-git-deleted">Old</span>
         <RevisionIcon
           kind={
             initial.base.kind === 'commit'
@@ -81,7 +81,7 @@ export function ComparisonControls({
           {appliedOld}
         </span>
         <ArrowLeft className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className="shrink-0 text-git-added/60">New</span>
+        <span className="shrink-0 text-git-added">New</span>
         <RevisionIcon
           kind={
             initial.target.kind === 'commit'

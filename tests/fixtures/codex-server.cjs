@@ -41,11 +41,6 @@ createInterface({ input: process.stdin }).on('line', (line) => {
           supportedReasoningEfforts: [
             { reasoningEffort: 'low', description: 'Fast' },
             { reasoningEffort: 'high', description: 'Thorough' },
-            {
-              title: 'Supporting files',
-              rationale: 'Check the helper last.',
-              paths: ['helpers/a.ts'],
-            },
           ],
         })),
         nextCursor: null,

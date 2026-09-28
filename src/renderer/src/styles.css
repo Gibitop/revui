@@ -147,11 +147,11 @@ textarea {
   --trees-font-family-override: 'Geist Mono Variable', monospace;
 }
 :root {
-  --git-added: light-dark(#16806a, #00cab1);
-  --git-deleted: light-dark(#cf2637, #ff6762);
-  --git-modified: light-dark(#967400, #ffd452);
-  --git-renamed: light-dark(#087f9f, #08c0ef);
-  --git-conflicted: light-dark(#b34c00, #ff9c52);
+  --git-added: light-dark(#116653, #00cab1);
+  --git-deleted: light-dark(#b31f2e, #ff6762);
+  --git-modified: light-dark(#735900, #ffd452);
+  --git-renamed: light-dark(#08647d, #08c0ef);
+  --git-conflicted: light-dark(#953f00, #ff9c52);
 }
 .file-tree {
   --trees-status-added-override: var(--git-added);

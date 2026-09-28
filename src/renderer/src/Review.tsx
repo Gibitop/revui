@@ -294,9 +294,10 @@ function ReviewSession({
     [records.data?.threads, remoteThreads],
   )
   const filterThreads = filter === 'unresolved' ? records.data?.threads : undefined
+  const filterRemoteThreads = filter === 'unresolved' ? remoteThreads : undefined
   const paths = useMemo(() => {
     const unresolvedPaths = new Set(
-      [...(filterThreads ?? []), ...remoteThreads]
+      [...(filterThreads ?? []), ...(filterRemoteThreads ?? [])]
         .filter((thread) => !thread.resolved)
         .map((thread) => thread.path),
     )
@@ -324,7 +325,7 @@ function ReviewSession({
   }, [
     snapshot.data,
     filterThreads,
-    remoteThreads,
+    filterRemoteThreads,
     filter,
     search,
     fileOrder,
@@ -345,6 +346,7 @@ function ReviewSession({
     )
   }, [paths, snapshot.data])
   const navigableThreads = useMemo(() => {
+    if (!unresolved.length) return []
     const threadPaths = fileOrder === 'ai' ? paths : [...(snapshot.data?.paths ?? []), ...paths]
     const threadOrder = new Map([...new Set(threadPaths)].map((path, index) => [path, index]))
     return unresolved

@@ -289,9 +289,16 @@ export function ReviewSidebar({
               selected={selected}
               select={select}
             />
+          ) : view === 'flat' ? (
+            <FlatFileList
+              files={snapshot.files}
+              paths={paths}
+              selected={selected}
+              onSelect={select}
+              theme={theme}
+            />
           ) : (
             <ReviewTree
-              view={view}
               files={snapshot.files}
               paths={paths}
               selected={selected}
@@ -377,18 +384,10 @@ function ReviewOrder({
   }, [loaded, snapshot.id, settingsKey])
   const state = loaded ? ai?.state : undefined
   const listRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (view === 'tree') return
-    listRef.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' })
-  }, [selected, view])
   const error = state?.order.error || (!state ? ai?.error : '')
   const loading =
     !error &&
     (!state || state.order.running || (!state.record.walkthroughKey && !state.order.error))
-  const statuses = useMemo(
-    () => new Map(snapshot.files.map((file) => [file.path, file])),
-    [snapshot.files],
-  )
   const sections = useMemo(() => {
     const included = new Set(paths)
     return (
@@ -468,7 +467,6 @@ function ReviewOrder({
               </div>
               {view === 'tree' ? (
                 <ReviewTree
-                  view="tree"
                   files={snapshot.files}
                   paths={visible}
                   selected={visible.includes(selected) ? selected : ''}
@@ -477,47 +475,14 @@ function ReviewOrder({
                   section
                 />
               ) : (
-                visible.map((path) => {
-                  const file = statuses.get(path)
-                  const status = file?.status
-                  const gitStatus = file?.mergeConflict
-                    ? 'conflicted'
-                    : status
-                      ? (gitStatuses[status] ?? 'modified')
-                      : undefined
-                  const icon = resolveIcon('file-tree-icon-file', path)
-                  return (
-                    <button
-                      key={path}
-                      type="button"
-                      aria-label={path}
-                      aria-current={selected === path ? 'true' : undefined}
-                      data-git-status={gitStatus}
-                      title={path}
-                      onClick={() => select(path)}
-                      className="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left font-mono text-[13px] hover:bg-accent focus-visible:outline-ring aria-current:bg-accent"
-                    >
-                      <svg
-                        width={16}
-                        height={16}
-                        viewBox="0 0 16 16"
-                        className="shrink-0"
-                        aria-hidden="true"
-                        style={{
-                          color: `var(--trees-file-icon-color-${icon.token ?? 'default'}, var(--trees-file-icon-color-default))`,
-                        }}
-                      >
-                        <use href={`#${icon.name}`} />
-                      </svg>
-                      <span className="min-w-0 flex-1 truncate">{path}</span>
-                      {status && (
-                        <span aria-label={gitStatus}>
-                          {file?.mergeConflict ? 'Conflicted' : status}
-                        </span>
-                      )}
-                    </button>
-                  )
-                })
+                <FlatFileList
+                  files={snapshot.files}
+                  paths={visible}
+                  selected={selected}
+                  onSelect={select}
+                  theme={theme}
+                  scrollRef={listRef}
+                />
               )}
             </section>
           )
@@ -526,16 +491,175 @@ function ReviewOrder({
   )
 }
 
+// Flat rows are 28px tall; keep eight extra rows above and below the viewport.
+const fileRowHeight = 28
+
+const FlatFileList = memo(function FlatFileList({
+  files,
+  paths,
+  selected,
+  onSelect,
+  theme,
+  scrollRef,
+}: {
+  files: Snapshot['files']
+  paths: string[]
+  selected: string
+  onSelect: (path: string) => void
+  theme: 'light' | 'dark'
+  scrollRef?: RefObject<HTMLDivElement | null>
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLUListElement>(null)
+  const restoreFocus = useRef(false)
+  const [range, setRange] = useState({ start: 0, end: 0 })
+  const statuses = useMemo(() => new Map(files.map((file) => [file.path, file])), [files])
+
+  useEffect(() => {
+    const scroll = scrollRef ? scrollRef.current : containerRef.current
+    const list = listRef.current
+    if (!scroll || !list) return
+    const header = scrollRef
+      ? list.closest('section')?.querySelector<HTMLElement>('[data-testid="review-step-header"]')
+      : undefined
+    const update = () => {
+      const top =
+        scroll.getBoundingClientRect().top + scroll.clientTop - list.getBoundingClientRect().top
+      const start = Math.min(paths.length, Math.max(0, Math.floor(top / fileRowHeight) - 8))
+      const end = Math.min(
+        paths.length,
+        Math.max(0, Math.ceil((top + scroll.clientHeight) / fileRowHeight) + 8),
+      )
+      setRange((previous) =>
+        previous.start === start && previous.end === end ? previous : { start, end },
+      )
+    }
+    const index = paths.indexOf(selected)
+    if (list.contains(document.activeElement)) restoreFocus.current = true
+    if (index >= 0 && scroll.clientHeight > 0) {
+      const top =
+        list.getBoundingClientRect().top -
+        scroll.getBoundingClientRect().top -
+        scroll.clientTop +
+        scroll.scrollTop +
+        index * fileRowHeight
+      const headerHeight = header?.getBoundingClientRect().height ?? 0
+      if (top < scroll.scrollTop + headerHeight) scroll.scrollTop = Math.max(0, top - headerHeight)
+      else if (top + fileRowHeight > scroll.scrollTop + scroll.clientHeight)
+        scroll.scrollTop = top + fileRowHeight - scroll.clientHeight
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(scroll)
+    observer.observe(list)
+    if (header) observer.observe(header)
+    scroll.addEventListener('scroll', update, { passive: true })
+    return () => {
+      observer.disconnect()
+      scroll.removeEventListener('scroll', update)
+    }
+  }, [paths, selected, scrollRef])
+
+  useEffect(() => {
+    if (!restoreFocus.current) return
+    const button = listRef.current?.querySelector<HTMLButtonElement>('[aria-current="true"]')
+    if (button) {
+      button.focus({ preventScroll: true })
+      restoreFocus.current = false
+    }
+  }, [range, selected])
+
+  return (
+    <div
+      ref={containerRef}
+      className={scrollRef ? undefined : 'flat-file-list min-h-0 flex-1 overflow-auto px-2 pb-2'}
+      style={{ colorScheme: theme }}
+    >
+      {!scrollRef && (
+        <div
+          aria-hidden="true"
+          className="hidden"
+          dangerouslySetInnerHTML={{ __html: fileIconSprite }}
+        />
+      )}
+      <ul
+        ref={listRef}
+        aria-label="File list"
+        className="relative"
+        style={{ height: paths.length * fileRowHeight }}
+        onKeyDown={(event) => {
+          if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+          if (event.key !== 'Home' && event.key !== 'End') return
+          event.preventDefault()
+          event.stopPropagation()
+          const path = event.key === 'Home' ? paths[0] : paths.at(-1)
+          if (path) onSelect(path)
+        }}
+      >
+        {paths.slice(range.start, range.end).map((path, offset) => {
+          const index = range.start + offset
+          const file = statuses.get(path)
+          const status = file?.status
+          const gitStatus = file?.mergeConflict
+            ? 'conflicted'
+            : status
+              ? (gitStatuses[status] ?? 'modified')
+              : undefined
+          const icon = resolveIcon('file-tree-icon-file', path)
+          return (
+            <li
+              key={path}
+              aria-posinset={index + 1}
+              aria-setsize={paths.length}
+              className="absolute inset-x-0"
+              style={{ top: index * fileRowHeight, height: fileRowHeight }}
+            >
+              <button
+                type="button"
+                aria-label={path}
+                aria-current={path === selected ? 'true' : undefined}
+                title={path}
+                data-git-status={gitStatus}
+                onClick={() => onSelect(path)}
+                className="flex h-full w-full items-center gap-2 rounded-sm px-2 text-left font-mono text-[13px] leading-5 hover:bg-accent focus-visible:outline-ring aria-current:bg-accent"
+              >
+                <svg
+                  width={16}
+                  height={16}
+                  viewBox="0 0 16 16"
+                  className="shrink-0"
+                  aria-hidden="true"
+                  style={{
+                    color: `var(--trees-file-icon-color-${icon.token ?? 'default'}, var(--trees-file-icon-color-default))`,
+                  }}
+                >
+                  <use href={`#${icon.name}`} />
+                </svg>
+                <span className="min-w-0 flex-1 truncate" dir="rtl">
+                  <bdi dir="ltr">{path}</bdi>
+                </span>
+                {status && (
+                  <span className="shrink-0" aria-label={gitStatus}>
+                    {file?.mergeConflict ? 'Conflicted' : status}
+                  </span>
+                )}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+})
+
 const ReviewTree = memo(function ReviewTree({
   section = false,
-  view,
   files,
   paths,
   selected,
   onSelect,
   theme,
 }: {
-  view: string
   section?: boolean
   files: Snapshot['files']
   paths: string[]
@@ -543,10 +667,6 @@ const ReviewTree = memo(function ReviewTree({
   onSelect: (path: string) => void
   theme: 'light' | 'dark'
 }) {
-  const listRef = useRef<HTMLUListElement>(null)
-  useEffect(() => {
-    listRef.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' })
-  }, [view, selected, paths])
   const selection = useRef({ selected, onSelect })
   const syncingSelection = useRef(false)
   selection.current = { selected, onSelect }
@@ -656,64 +776,6 @@ const ReviewTree = memo(function ReviewTree({
   const treeHeight = useFileTreeSelector(model, (tree) =>
     Math.max(tree.getItemHeight(), tree.getVisibleCount() * tree.getItemHeight()),
   )
-  if (view === 'flat') {
-    const statuses = new Map(files.map((file) => [file.path, file]))
-    return (
-      <div
-        className="flat-file-list min-h-0 flex-1 overflow-auto px-2 pb-2"
-        style={{ colorScheme: theme }}
-      >
-        <div
-          aria-hidden="true"
-          className="hidden"
-          dangerouslySetInnerHTML={{ __html: fileIconSprite }}
-        />
-        <ul ref={listRef} aria-label="File list">
-          {paths.map((path) => {
-            const file = statuses.get(path)
-            const status = file?.status
-            const gitStatus = file?.mergeConflict
-              ? 'conflicted'
-              : status
-                ? (gitStatuses[status] ?? 'modified')
-                : undefined
-            const icon = resolveIcon('file-tree-icon-file', path)
-            return (
-              <li key={path}>
-                <button
-                  type="button"
-                  aria-current={path === selected ? 'true' : undefined}
-                  title={path}
-                  data-git-status={gitStatus}
-                  onClick={() => onSelect(path)}
-                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left font-mono text-[13px] hover:bg-accent focus-visible:outline-ring aria-current:bg-accent"
-                >
-                  <svg
-                    width={16}
-                    height={16}
-                    viewBox="0 0 16 16"
-                    className="shrink-0"
-                    aria-hidden="true"
-                    style={{
-                      color: `var(--trees-file-icon-color-${icon.token ?? 'default'}, var(--trees-file-icon-color-default))`,
-                    }}
-                  >
-                    <use href={`#${icon.name}`} />
-                  </svg>
-                  <span className="min-w-0 flex-1 truncate">{path}</span>
-                  {status && (
-                    <span aria-label={gitStatus}>
-                      {file?.mergeConflict ? 'Conflicted' : status}
-                    </span>
-                  )}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      </div>
-    )
-  }
   if (error)
     return (
       <div role="alert" className="p-3">

@@ -6,6 +6,8 @@ Local review is implemented: open repositories, compare commits or local changes
 
 The shell has one toolbar and a monochrome palette. Color is reserved for semantic information such as added/deleted lines. Typography is limited to three styles: UI text (Geist, 400), labels (Geist, 600), and paths/code (Geist Mono, 400), all at 13px/20px with normal letter spacing and no text transforms.
 
+For a first review, recovery steps, keyboard controls, and reproducible readiness checks, see the [team setup guide](docs/team-readiness.md).
+
 ## Run locally
 
 Install Node.js 24 LTS, pnpm 11.25.0, and Git. On Windows, install Git for Windows and make Git available on `PATH`. Use native PowerShell or Command Prompt; WSL is not the desktop runtime.
@@ -60,7 +62,7 @@ Each file header has an icon-only IDE split button beside Copy relative path. Th
 ```sh
 pnpm run check          # TypeScript + Hooks lint + formatting + Vitest
 pnpm run test:e2e       # Build + Playwright desktop review tests
-pnpm run test:benchmark # Opt-in 100,000-file / 1,000-change desktop measurement
+pnpm run test:benchmark # Opt-in monorepo timing + concurrent scrolling measurement
 ```
 
 Desktop tests require a graphical desktop session. They use temporary repositories and isolated settings directories, not your normal app preferences. Playwright uses the installed Electron binary; a separate browser download is not required.

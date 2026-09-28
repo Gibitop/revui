@@ -221,6 +221,13 @@ export function ContentSearch({
           event.preventDefault()
           inputRef.current?.focus()
         }}
+        onKeyDown={(event) => {
+          // Dismiss search even when a closing tooltip also consumes Escape.
+          if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
+            event.preventDefault()
+            onOpenChange(false)
+          }
+        }}
       >
         <header className="shrink-0 border-b px-6 pt-5 pb-5">
           <DialogTitle className="pr-10 font-semibold">Search file contents</DialogTitle>

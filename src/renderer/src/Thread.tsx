@@ -71,14 +71,20 @@ export function Thread({
       details={
         <>
           {inOverlay ? (
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span className="break-all font-mono">
-                {thread.path}:{thread.start}
-                {thread.end !== thread.start ? `–${thread.end}` : ''}
+            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              <span className="min-w-0 truncate font-mono" dir="rtl" title={thread.path}>
+                <bdi dir="ltr">
+                  {thread.path}:{thread.start}
+                  {thread.end !== thread.start ? `–${thread.end}` : ''}
+                </bdi>
               </span>
-              {!current && <span>Outdated / unplaced</span>}
+              {!current && <span className="shrink-0">Outdated / unplaced</span>}
               {onNavigate && (
-                <Button variant="ghost" className="h-6 gap-1 px-2 text-xs" onClick={onNavigate}>
+                <Button
+                  variant="ghost"
+                  className="h-6 shrink-0 gap-1 px-2 text-xs"
+                  onClick={onNavigate}
+                >
                   <ExternalLink className="size-3.5" />
                   View in diff
                 </Button>

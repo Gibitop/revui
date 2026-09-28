@@ -44,26 +44,32 @@ export function chatFileReferences(snapshot?: Snapshot) {
       (/^\//.test(filename) || /^[A-Za-z]:\//.test(filename)) &&
       !filename.split('/').includes('..')
     ) {
-      const matches = [...paths].filter((candidate) => filename.endsWith(`/${candidate}`))
-      matches.sort((a, b) => b.length - a.length)
-      path = matches[0]
+      for (
+        let slash = filename.indexOf('/');
+        slash >= 0;
+        slash = filename.indexOf('/', slash + 1)
+      ) {
+        const suffix = filename.slice(slash + 1)
+        if (paths.has(suffix)) {
+          path = suffix
+          break
+        }
+      }
     }
     if (!path) return undefined
     const line = location ? Number(location[1] ?? location[2]) : undefined
     return { path, line: line && Number.isSafeInteger(line) ? line : undefined }
   }
-  const names = [...aliases].filter(([, path]) => path).map(([name]) => name)
-  const pattern = names.length
-    ? new RegExp(
-        `(?<![\\w./\\\\-])(?:${names
-          .sort((a, b) => b.length - a.length)
-          .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-          .join(
-            '|',
-          )})(?::\\d+(?::\\d+)?(?:-\\d+)?|#L\\d+(?:C\\d+)?(?:-L?\\d+)?)?(?![\\w/\\\\-]|\\.[\\w])`,
-        'g',
-      )
-    : null
+  // A regex containing every alias takes seconds to compile for a monorepo and
+  // blocks streaming Markdown. Bound text scans by the longest actual alias instead.
+  let longestAlias = 0
+  const firstCharacters = new Set<string>()
+  for (const [name, path] of aliases) {
+    if (!path) continue
+    longestAlias = Math.max(longestAlias, name.length)
+    firstCharacters.add(name[0])
+  }
+  const lineSuffix = /^(?::\d+(?::\d+)?(?:-\d+)?|#L\d+(?:C\d+)?(?:-L?\d+)?)/
   // Only prose and inline code are linked; fenced code and existing links stay intact.
   const plugin = () => (tree: MarkdownNode) => {
     const visit = (node: MarkdownNode) => {
@@ -78,22 +84,37 @@ export function chatFileReferences(snapshot?: Snapshot) {
             },
           ]
         }
-        if (child.type !== 'text' || !pattern) {
+        if (child.type !== 'text' || !longestAlias) {
           visit(child)
           return [child]
         }
         const result: MarkdownNode[] = []
         const value = child.value ?? ''
         let offset = 0
-        for (const match of value.matchAll(pattern)) {
-          if (match.index > offset)
-            result.push({ type: 'text', value: value.slice(offset, match.index) })
+        for (let start = 0; start < value.length; start++) {
+          if (
+            !firstCharacters.has(value[start]) ||
+            (start > 0 && /[\w./\\-]/.test(value[start - 1]))
+          )
+            continue
+          let matchedEnd = start
+          for (let end = start + 1; end <= Math.min(value.length, start + longestAlias); end++) {
+            if (/^(?:[\w/\\-]|\.[\w])/.test(value.slice(end, end + 2))) continue
+            if (!aliases.get(value.slice(start, end))) continue
+            const suffix = lineSuffix.exec(value.slice(end))?.[0] ?? ''
+            const after = end + suffix.length
+            if (!/^(?:[\w/\\-]|\.[\w])/.test(value.slice(after, after + 2))) matchedEnd = after
+          }
+          if (matchedEnd === start) continue
+          if (start > offset) result.push({ type: 'text', value: value.slice(offset, start) })
+          const reference = value.slice(start, matchedEnd)
           result.push({
             type: 'link',
-            url: `#review-file=${encodeURIComponent(match[0])}`,
-            children: [{ type: 'text', value: match[0] }],
+            url: `#review-file=${encodeURIComponent(reference)}`,
+            children: [{ type: 'text', value: reference }],
           })
-          offset = match.index + match[0].length
+          offset = matchedEnd
+          start = matchedEnd - 1
         }
         if (offset < value.length) result.push({ type: 'text', value: value.slice(offset) })
         return result.length ? result : [child]
