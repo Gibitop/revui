@@ -10,6 +10,7 @@ import type { Snapshot } from '../shared/review'
 
 const dirs: string[] = []
 afterEach(async () => {
+  vi.useRealTimers()
   await Promise.all(dirs.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 const refs = { base_sha: 'a'.repeat(40), head_sha: 'b'.repeat(40), start_sha: 'c'.repeat(40) }
@@ -202,6 +203,7 @@ async function fixture() {
     return (await target.handle({ kind: 'select', snapshot: snapshot.id, iid: 7 })).review!
   }
   return {
+    fetcher,
     commits,
     emails,
     user,
@@ -914,4 +916,138 @@ it('provides MR metadata and discussions to AI without exposing fetched diffs', 
   expect(context.mr.description).toBe(review.mr.description)
   expect(context.discussions).toEqual(review.discussions)
   expect(f.service.aiContext('another-snapshot')).toContain('No merge request')
+})
+
+describe('GitLab request scheduling', () => {
+  it('coalesces simultaneous refreshes but fetches again after completion', async () => {
+    const f = await fixture()
+    const review = await f.select()
+    f.requests.length = 0
+    const input = { kind: 'refresh' as const, session: review.session }
+    const [first, second] = await Promise.all([f.service.handle(input), f.service.handle(input)])
+    expect(first).toEqual(second)
+    expect(first.review).not.toBe(second.review)
+    const count = f.requests.length
+    expect(f.requests.filter(({ url }) => url.pathname.endsWith('/discussions'))).toHaveLength(1)
+    await f.service.handle(input)
+    expect(f.requests).toHaveLength(count * 2)
+  })
+
+  it('keeps refreshes separated by a mutation and never deduplicates writes', async () => {
+    const f = await fixture()
+    const review = await f.select()
+    f.requests.length = 0
+    const refresh = { kind: 'refresh' as const, session: review.session }
+    const comment = { kind: 'comment' as const, session: review.session, body: 'hello' }
+    await Promise.all([
+      f.service.handle(refresh),
+      f.service.handle(comment),
+      f.service.handle(comment),
+      f.service.handle(refresh),
+    ])
+    expect(f.posts()).toBe(2)
+    const methods = f.requests
+      .filter(({ url }) => url.pathname.endsWith('/discussions'))
+      .map(({ method }) => method)
+    expect(methods[0]).toBe('GET')
+    expect(methods.at(-1)).toBe('GET')
+    expect(methods.filter((method) => method === 'GET').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it.each<Record<string, string>>([
+    { 'Retry-After': '2' },
+    { 'Retry-After': new Date(2000).toUTCString() },
+    { 'RateLimit-Reset': '2' },
+    { 'RateLimit-ResetTime': new Date(2000).toUTCString() },
+  ])('pauses the shared queue and retries reads using %j', async (headers) => {
+    const f = await fixture()
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const fetcher = vi.mocked(f.fetcher)
+    fetcher.mockClear()
+    fetcher.mockResolvedValueOnce(new Response('Slow down', { status: 429, headers }))
+    const first = f.service['api']('user')
+    const second = f.service['api']('version')
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await Promise.all([first, second])
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    expect(String(fetcher.mock.calls[1][0])).toContain('/user?')
+    expect(String(fetcher.mock.calls[2][0])).toContain('/version?')
+    expect(fetcher.mock.calls[1][1]?.signal?.aborted).toBe(false)
+  })
+
+  it('waits proactively when a successful response has exhausted its quota', async () => {
+    const f = await fixture()
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const fetcher = vi.mocked(f.fetcher)
+    fetcher.mockClear()
+    fetcher.mockResolvedValueOnce(
+      new Response('{}', {
+        headers: { 'RateLimit-Remaining': '0', 'RateLimit-Reset': '2' },
+      }),
+    )
+    const first = f.service['api']('user')
+    const second = f.service['api']('version')
+    await vi.advanceTimersByTimeAsync(1999)
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await Promise.all([first, second])
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it('bounds retries with backoff when rate limit headers are absent or invalid', async () => {
+    const f = await fixture()
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const fetcher = vi.mocked(f.fetcher)
+    fetcher.mockClear()
+    fetcher.mockImplementation(
+      async () =>
+        new Response('', {
+          status: 429,
+          headers: { 'Retry-After': 'invalid', 'RateLimit-Reset': 'invalid' },
+        }),
+    )
+    const rejected = expect(f.service['api']('user')).rejects.toThrow(
+      'GitLab 429: rate limit exceeded',
+    )
+    await vi.advanceTimersByTimeAsync(7000)
+    await rejected
+    expect(fetcher).toHaveBeenCalledTimes(4)
+    // A failed request does not poison the queue, and its final cooldown still applies.
+    fetcher.mockResolvedValueOnce(new Response('{}'))
+    const next = f.service['api']('user')
+    await vi.advanceTimersByTimeAsync(7999)
+    expect(fetcher).toHaveBeenCalledTimes(4)
+    await vi.advanceTimersByTimeAsync(1)
+    await next
+    expect(fetcher).toHaveBeenCalledTimes(5)
+  })
+
+  it('does not replay writes on 429 or on an ambiguous network failure', async () => {
+    const f = await fixture()
+    const fetcher = vi.mocked(f.fetcher)
+    fetcher.mockClear()
+    fetcher.mockResolvedValueOnce(
+      new Response('', {
+        status: 429,
+        headers: { 'Retry-After': '2', 'RateLimit-Limit': '60' },
+      }),
+    )
+    await expect(f.service['api']('comments', 'POST', { body: 'hello' })).rejects.toThrow(
+      'retry in 2s (reported quota: 60)',
+    )
+    expect(fetcher).toHaveBeenCalledTimes(1)
+    vi.useFakeTimers()
+    fetcher.mockRejectedValueOnce(new Error('connection lost'))
+    const rejected = expect(
+      f.service['api']('comments', 'POST', { body: 'hello' }),
+    ).rejects.toThrow('The change may have succeeded')
+    await vi.advanceTimersByTimeAsync(2000)
+    await rejected
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
 })

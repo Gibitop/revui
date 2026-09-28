@@ -134,9 +134,12 @@ export function projectFromOrigin(origin: string, instance: string): string {
 }
 
 class GitLabHTTPError extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    detail?: string,
+  ) {
     super(
-      `GitLab ${status}: ${status === 401 ? 'check your token' : status === 403 ? 'permission denied' : status === 409 ? 'MR revision changed' : 'request failed'}.`,
+      `GitLab ${status}: ${detail ?? (status === 401 ? 'check your token' : status === 403 ? 'permission denied' : status === 409 ? 'MR revision changed' : 'request failed')}.`,
     )
   }
 }
@@ -153,6 +156,9 @@ export class GitLabService {
   private matches = new Map<string, { project: number; mrs: MR[] }>()
   private avatars = new Map<string, Promise<string | null>>()
   private queue: Promise<unknown> = Promise.resolve()
+  private reads = new Map<string, Promise<GitLabResult>>()
+  private httpQueue: Promise<unknown> = Promise.resolve()
+  private cooldowns = new Map<string, number>()
   constructor(
     private directory: string,
     private snapshot: (id: string) => Snapshot,
@@ -198,7 +204,63 @@ export class GitLabService {
       version: this.credentials?.serverVersion,
     }
   }
-  private async transport(url: URL, options: RequestInit, maxBytes = 50 * 1024 * 1024) {
+  private transport(url: URL, options: RequestInit, maxBytes?: number, timeout = 30000) {
+    const credentials = this.credentials
+    const next = this.httpQueue.then(async () => {
+      for (let attempt = 0; ; attempt++) {
+        // Keep the cooldown shared by API calls and avatars, including after a failed request.
+        while ((this.cooldowns.get(url.origin) ?? 0) > Date.now()) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(this.cooldowns.get(url.origin)! - Date.now(), 60000)),
+          )
+        }
+        if (credentials !== this.credentials) throw new Error('GitLab connection changed.')
+        const response = await this.send(
+          url,
+          {
+            ...options,
+            signal: AbortSignal.timeout(timeout),
+          },
+          maxBytes,
+        )
+        const now = Date.now()
+        const retry = response.headers.get('retry-after')
+        const reset = response.headers.get('ratelimit-reset')
+        const resetTime = response.headers.get('ratelimit-resettime')
+        const deadlines = [
+          retry && (/^\d+(?:\.\d+)?$/.test(retry) ? now + Number(retry) * 1000 : Date.parse(retry)),
+          reset && /^\d+$/.test(reset) ? Number(reset) * 1000 : NaN,
+          resetTime ? Date.parse(resetTime) : NaN,
+        ].filter(
+          (value): value is number =>
+            typeof value === 'number' && Number.isFinite(value) && value > now,
+        )
+        if (response.status === 429 || response.headers.get('ratelimit-remaining') === '0') {
+          this.cooldowns.set(
+            url.origin,
+            Math.max(
+              this.cooldowns.get(url.origin) ?? 0,
+              ...deadlines,
+              now + (deadlines.length ? 0 : 1000 * 2 ** attempt),
+            ),
+          )
+        }
+        if (response.status !== 429) return response
+        await response.body?.cancel()
+        if (options.method !== 'GET' || attempt >= 3) {
+          const seconds = Math.ceil((this.cooldowns.get(url.origin)! - now) / 1000)
+          const limit = response.headers.get('ratelimit-limit')
+          throw new GitLabHTTPError(
+            429,
+            `rate limit exceeded; retry in ${seconds}s${limit && /^\d+$/.test(limit) ? ` (reported quota: ${limit})` : ''}`,
+          )
+        }
+      }
+    })
+    this.httpQueue = next.catch(() => undefined)
+    return next
+  }
+  private async send(url: URL, options: RequestInit, maxBytes = 50 * 1024 * 1024) {
     const credentials = this.credentials
     if (
       url.protocol === 'https:' &&
@@ -264,7 +326,6 @@ export class GitLabService {
         const options: RequestInit = {
           method,
           redirect: 'error',
-          signal: AbortSignal.timeout(30000),
           headers: {
             'PRIVATE-TOKEN': this.secrets.decrypt(this.credentials.encrypted),
             'Content-Type': 'application/json',
@@ -272,7 +333,8 @@ export class GitLabService {
           body: data === undefined ? undefined : JSON.stringify(data),
         }
         response = await this.transport(url, options)
-      } catch {
+      } catch (error) {
+        if (error instanceof GitLabHTTPError) throw error
         throw new Error(
           method === 'GET'
             ? 'GitLab could not be reached. Check your connection and TLS certificate.'
@@ -539,10 +601,10 @@ export class GitLabService {
           {
             method: 'GET',
             redirect: 'error',
-            signal: AbortSignal.timeout(5000),
             headers,
           },
           limit,
+          5000,
         )
         const mime = response.headers.get('content-type')?.split(';')[0].trim()
         if (
@@ -577,9 +639,23 @@ export class GitLabService {
   handle(input: GitLabRequest): Promise<GitLabResult> {
     const parsed = gitlabRequestSchema.parse(input)
     if (parsed.kind === 'avatar') return this.avatar(parsed)
-    const next = this.queue.then(() => this.run(parsed))
+    const read = ['config', 'list-mrs', 'lookup', 'select', 'refresh'].includes(parsed.kind)
+    const key = JSON.stringify(parsed)
+    if (read) {
+      const pending = this.reads.get(key)
+      if (pending) return pending.then((result) => structuredClone(result))
+    } else {
+      // A read after a mutation must not reuse a result from before that mutation.
+      this.reads.clear()
+    }
+    const next = this.queue
+      .then(() => this.run(parsed))
+      .finally(() => {
+        if (this.reads.get(key) === next) this.reads.delete(key)
+      })
+    if (read) this.reads.set(key, next)
     this.queue = next.catch(() => undefined)
-    return next
+    return next.then((result) => structuredClone(result))
   }
   private async run(input: Exclude<GitLabRequest, { kind: 'avatar' }>): Promise<GitLabResult> {
     if (input.kind === 'config') return { config: this.config() }
