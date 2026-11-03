@@ -57,7 +57,7 @@
     "typescript-language-server": "^6.0.1",
     "unist-util-visit": "^5.1.0",
     "vscode-jsonrpc": "^9.0.3",
-    "zod": "4.6.5"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
